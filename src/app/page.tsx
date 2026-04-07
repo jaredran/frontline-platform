@@ -1,65 +1,66 @@
-import Image from "next/image";
+'use client'
 
-export default function Home() {
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuth } from '@/lib/auth-context'
+import { DEMO_USERS } from '@/lib/data/seed'
+import { ROLE_LABELS } from '@/lib/constants'
+import type { Role } from '@/lib/types'
+
+export default function LoginPage() {
+  const { login, user } = useAuth()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (user) {
+      router.push(`/${user.role}`)
+    }
+  }, [user, router])
+
+  function handleLogin(userId: string, role: Role) {
+    login(userId)
+    router.push(`/${role}`)
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen flex items-center justify-center bg-white p-4">
+      <div className="w-full max-w-md">
+        {/* Logo */}
+        <div className="text-center mb-8">
+          <svg viewBox="0 0 32 32" className="h-12 w-12 text-[#ff385c] mx-auto mb-4" fill="currentColor">
+            <path d="M16 1c2.008 0 3.463.963 4.751 3.269l.533 1.025c1.954 3.83 6.114 12.54 7.1 14.836l.145.353c.667 1.591.91 2.472.96 3.396l.01.415c0 1.456-.463 2.648-1.408 3.563-1.05 1.02-2.324 1.413-3.87 1.413-.872 0-1.872-.178-2.943-.534-1.255-.414-2.604-1.16-3.814-2.105-.497-.39-.983-.819-1.464-1.287-.48.468-.967.897-1.464 1.287-1.21.944-2.559 1.691-3.814 2.105-1.07.356-2.07.534-2.943.534-1.547 0-2.82-.394-3.87-1.413C2.463 26.77 2 25.578 2 24.122l.01-.415c.05-.924.293-1.805.96-3.396l.145-.353c.986-2.296 5.146-11.005 7.1-14.836l.533-1.025C12.037 1.963 13.492 1 15.5 1h.5z"/>
+          </svg>
+          <h1 className="text-[28px] font-bold text-[#222222]" style={{ letterSpacing: '-0.44px' }}>Frontline</h1>
+          <p className="text-sm text-[#6a6a6a] mt-1 font-medium">Select an account to explore</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* User list */}
+        <div className="rounded-[20px] overflow-hidden" style={{ boxShadow: 'rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px' }}>
+          {DEMO_USERS.map((demoUser, i) => (
+            <button
+              key={demoUser.id}
+              onClick={() => handleLogin(demoUser.id, demoUser.role as Role)}
+              className={`w-full flex items-center gap-3 px-5 py-4 hover:bg-[#f7f7f7] transition-colors text-left ${
+                i > 0 ? 'border-t border-[#ebebeb]' : ''
+              }`}
+            >
+              <div className="h-10 w-10 rounded-full bg-[#f7f7f7] flex items-center justify-center text-sm font-bold text-[#222222] shrink-0">
+                {demoUser.name.split(' ').map(n => n[0]).join('')}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[15px] font-semibold text-[#222222]">{demoUser.name}</p>
+                <p className="text-[13px] text-[#6a6a6a]">
+                  {ROLE_LABELS[demoUser.role as Role]} &middot; {demoUser.location}
+                </p>
+              </div>
+            </button>
+          ))}
         </div>
-      </main>
+
+        <p className="text-xs text-[#6a6a6a] text-center mt-8 font-medium">
+          Crisp &amp; Green &middot; 3 locations &middot; AI by Claude
+        </p>
+      </div>
     </div>
-  );
+  )
 }

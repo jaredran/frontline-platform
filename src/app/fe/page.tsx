@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { getShiftsForEmployee, updateTaskStatus, getProfile } from '@/lib/data/store'
 import { InlineAI } from '@/components/shared/inline-ai'
-import { RoleShell } from '@/components/shared/role-shell'
+
 import { Loader2, FileText } from 'lucide-react'
 import type { Task, TaskStatus } from '@/lib/types'
 
@@ -97,8 +97,7 @@ export default function MyShiftPage() {
   }
 
   return (
-    <RoleShell role="fe">
-      <div className="bg-white min-h-full">
+    <div className="bg-white min-h-full">
         {/* Shift header */}
         <div className="px-5 py-4 flex items-center justify-between">
           <div>
@@ -262,6 +261,5 @@ export default function MyShiftPage() {
           </div>
         )}
       </div>
-    </RoleShell>
   )
 }

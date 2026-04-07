@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth-context'
 import { getPulseMetrics, getLocation, getProfilesByLocation, getShiftsByLocation } from '@/lib/data/store'
 import { PulseGrid } from '@/components/shared/pulse-card'
 import { InlineAI } from '@/components/shared/inline-ai'
-import { RoleShell } from '@/components/shared/role-shell'
+
 import { Loader2, Sparkles, TrendingUp, X, Check } from 'lucide-react'
 import { PULSE_METRICS } from '@/lib/types'
 import type { PulseMetric, RecommendedAction } from '@/lib/types'
@@ -128,8 +128,7 @@ export default function PulseDashboard() {
     : null
 
   return (
-    <RoleShell role="lm">
-      <div className="bg-white min-h-full">
+    <div className="bg-white min-h-full">
         {/* Location header */}
         <div className="px-5 py-4 border-b border-[#ebebeb]">
           <h1
@@ -327,6 +326,5 @@ export default function PulseDashboard() {
           </p>
         </div>
       </div>
-    </RoleShell>
   )
 }

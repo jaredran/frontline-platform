@@ -109,6 +109,16 @@ export default function PulseDashboard() {
       setLMProgress('invite_team')
       loginWithNewProfile(profile)
 
+      // Save the hero diagnosis as the initial briefing
+      const briefingFromDiagnosis = setup.diagnosis.root_causes
+        .map((rc, i) => `${i + 1}. ${rc.cause}: ${rc.reasoning}`)
+        .join('\n\n')
+      const actionsText = setup.diagnosis.recommended_actions
+        .map(a => `• ${a.action} (${a.expected_impact}, ${a.timeline})`)
+        .join('\n')
+      const initialBriefing = `Here's your initial diagnosis for ${setup.location_name}:\n\n${briefingFromDiagnosis}\n\nRecommended first actions:\n${actionsText}`
+      localStorage.setItem('frontline_initial_briefing', initialBriefing)
+
       // Clear the pending setup
       localStorage.removeItem('frontline_pending_setup')
     } catch (e) {
@@ -227,24 +237,40 @@ export default function PulseDashboard() {
         const { done, value } = await reader.read()
         if (done) break
         accumulated += decoder.decode(value, { stream: true })
-        setDiagnosisText(accumulated)
+        // DON'T set diagnosisText during streaming — buffer it
       }
 
-      // After streaming is done, try to extract structured actions
+      // Now format the response before displaying
       try {
         const jsonMatch = accumulated.match(/\{[\s\S]*\}/)
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0])
-          if (parsed.diagnosis) setDiagnosisText(parsed.diagnosis)
-          if (parsed.recommended_actions) setDiagnosisActions(parsed.recommended_actions)
-          if (parsed.causes) {
-            const causesText = parsed.causes.map((c: { cause: string; evidence: string }, i: number) =>
-              `${i + 1}. ${c.cause}\n   ${c.evidence}`
-            ).join('\n\n')
-            setDiagnosisText(parsed.diagnosis + '\n\n' + causesText)
+
+          // Build formatted diagnosis text
+          let formattedText = ''
+          if (parsed.diagnosis) {
+            formattedText = parsed.diagnosis
           }
+          if (parsed.causes && Array.isArray(parsed.causes)) {
+            const causesText = parsed.causes.map((c: { cause: string; evidence?: string; severity?: string }, i: number) =>
+              `${i + 1}. ${c.cause}${c.evidence ? '\n   ' + c.evidence : ''}`
+            ).join('\n\n')
+            formattedText = formattedText ? formattedText + '\n\n' + causesText : causesText
+          }
+
+          setDiagnosisText(formattedText || accumulated)
+
+          if (parsed.recommended_actions && Array.isArray(parsed.recommended_actions)) {
+            setDiagnosisActions(parsed.recommended_actions)
+          }
+        } else {
+          // Not JSON — display as-is (it's already plain text)
+          setDiagnosisText(accumulated)
         }
-      } catch { /* Not JSON, that's fine — plain text is already set */ }
+      } catch {
+        // JSON parse failed — display as-is
+        setDiagnosisText(accumulated)
+      }
     } catch {
       setDiagnosisText('Unable to generate diagnosis. Please try again.')
     } finally {

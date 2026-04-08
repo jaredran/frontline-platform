@@ -46,6 +46,16 @@ export function AIBriefing({ role, contextData, accentColor = '#ff385c' }: AIBri
     setError(false)
     setShowUpgrade(false)
 
+    // Check for pre-loaded briefing (from hero flow)
+    const savedBriefing = typeof window !== 'undefined' ? localStorage.getItem('frontline_initial_briefing') : null
+    if (savedBriefing) {
+      localStorage.removeItem('frontline_initial_briefing')
+      setBriefingText(savedBriefing)
+      setMessages([{ role: 'assistant', content: savedBriefing }])
+      setLoading(false)
+      return
+    }
+
     if (!canAffordAction('briefing')) {
       setShowUpgrade(true)
       setLoading(false)

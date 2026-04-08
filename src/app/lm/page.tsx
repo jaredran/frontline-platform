@@ -9,7 +9,7 @@ import { InlineAI } from '@/components/shared/inline-ai'
 import { NextStepCard } from '@/components/shared/next-step-card'
 import { AttributionChart } from '@/components/shared/attribution-chart'
 
-import { Loader2, Sparkles, TrendingUp, X, Check, Info } from 'lucide-react'
+import { Loader2, TrendingUp, X, Check, Info } from 'lucide-react'
 import { PULSE_METRICS } from '@/lib/types'
 import type { PulseMetric, RecommendedAction } from '@/lib/types'
 
@@ -74,27 +74,30 @@ export default function PulseDashboard() {
       setDiagnosisText(metric.diagnosis.diagnosis)
       setDiagnosisActions(metric.diagnosis.recommended_actions)
     } else {
+      // Auto-diagnose instead of waiting for button click
       setDiagnosisText('')
       setDiagnosisActions([])
+      setTimeout(() => {
+        handleDiagnoseForMetric(metric)
+      }, 0)
     }
   }
 
-  async function handleDiagnose() {
-    if (!selectedMetric) return
+  async function handleDiagnoseForMetric(metric: PulseMetric) {
     setIsDiagnosing(true)
     setDiagnosisText('')
     setDiagnosisActions([])
 
     try {
-      const meta = PULSE_METRICS[selectedMetric.metric_name as keyof typeof PULSE_METRICS]
+      const meta = PULSE_METRICS[metric.metric_name as keyof typeof PULSE_METRICS]
       const response = await fetch('/api/ai/diagnose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          metric_name: meta?.label ?? selectedMetric.metric_name,
-          actual: selectedMetric.actual,
-          target: selectedMetric.target,
-          trend: selectedMetric.trend,
+          metric_name: meta?.label ?? metric.metric_name,
+          actual: metric.actual,
+          target: metric.target,
+          trend: metric.trend,
           location_name: location?.name ?? 'this location',
           location_id: locationId,
         }),
@@ -130,7 +133,6 @@ export default function PulseDashboard() {
           if (parsed.diagnosis) setDiagnosisText(parsed.diagnosis)
           if (parsed.recommended_actions) setDiagnosisActions(parsed.recommended_actions)
           if (parsed.causes) {
-            // Prepend causes to diagnosis text
             const causesText = parsed.causes.map((c: { cause: string; evidence: string }, i: number) =>
               `${i + 1}. ${c.cause}\n   ${c.evidence}`
             ).join('\n\n')
@@ -173,7 +175,7 @@ export default function PulseDashboard() {
           }}
           accentColor="#ff385c"
         />
-        <NextStepCard onAdvance={() => forceUpdate(n => n + 1)} locationId={locationId} />
+        <NextStepCard onAdvance={() => forceUpdate(n => n + 1)} locationId={locationId} isDemoMode={isDemoData} />
         {/* Location header */}
         <div className="px-5 py-4 border-b border-[#ebebeb]">
           <h1
@@ -222,8 +224,8 @@ export default function PulseDashboard() {
           <div className="bg-[#f0f4ff] rounded-[14px] mx-5 mt-2 px-4 py-3 flex gap-3">
             <Info className="h-4 w-4 text-[#4a6fa5] shrink-0 mt-0.5" />
             <p className="text-[13px] text-[#6a6a6a]">
-              You&apos;re viewing demo data for {location?.name ?? 'this location'}.{' '}
-              <a href="/" className="text-[#ff385c] underline font-medium">Sign up</a> to create your own location with real data.
+              You&apos;re exploring demo data for {location?.name ?? 'this location'}.{' '}
+              <a href="/" className="text-[#ff385c] underline font-medium">Create your own location &rarr;</a> to see your real performance.
             </p>
           </div>
         )}
@@ -295,23 +297,12 @@ export default function PulseDashboard() {
                   <Loader2 className="h-3 w-3 text-[#6a6a6a] animate-spin mt-2" />
                 )}
               </div>
-            ) : (
-              <div className="py-4 text-center">
-                <p className="text-[13px] text-[#6a6a6a] mb-3">No diagnosis available.</p>
-                <button
-                  onClick={handleDiagnose}
-                  disabled={isDiagnosing}
-                  className="inline-flex items-center gap-2 bg-[#ff385c] text-white rounded-[8px] px-6 py-2.5 font-medium text-sm hover:opacity-90 disabled:opacity-50 transition-colors"
-                >
-                  {isDiagnosing ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-3.5 w-3.5" />
-                  )}
-                  {isDiagnosing ? 'Diagnosing...' : 'Diagnose'}
-                </button>
+            ) : isDiagnosing ? (
+              <div className="py-4 flex items-center gap-2 justify-center">
+                <Loader2 className="h-4 w-4 animate-spin text-[#ff385c]" />
+                <span className="text-[13px] text-[#6a6a6a]">Analyzing this metric...</span>
               </div>
-            )}
+            ) : null}
 
             {/* Recommended actions */}
             {diagnosisActions.length > 0 && (

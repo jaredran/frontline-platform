@@ -8,6 +8,7 @@ import type { LMProgressStep } from '@/lib/types'
 interface NextStepCardProps {
   onAdvance?: () => void
   locationId?: string | null
+  isDemoMode?: boolean
 }
 
 const cardShadow = 'rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px'
@@ -44,7 +45,7 @@ const STEP_CONFIG: Record<Exclude<LMProgressStep, 'complete'>, {
   },
 }
 
-export function NextStepCard({ onAdvance, locationId }: NextStepCardProps) {
+export function NextStepCard({ onAdvance, locationId, isDemoMode }: NextStepCardProps) {
   const [step, setStep] = useState<LMProgressStep>(getLMProgress())
   const [copied, setCopied] = useState(false)
   const [playbookTopic, setPlaybookTopic] = useState('')
@@ -111,22 +112,13 @@ export function NextStepCard({ onAdvance, locationId }: NextStepCardProps) {
               </div>
               {/* Team status */}
               <div className="bg-white border border-[#ebebeb] rounded-[8px] px-3 py-2">
-                <p className="text-[12px] text-[#6a6a6a] font-medium">
-                  {teamCount === 0 ? '0 team members joined' : `${teamCount} team member${teamCount === 1 ? '' : 's'} joined`}
-                </p>
-                {teamCount > 0 && (
-                  <div className="mt-1.5 space-y-1">
-                    {teamMembers.map(m => (
-                      <div key={m.id} className="flex items-center gap-1.5">
-                        <Check className="h-3 w-3 text-[#008a05]" />
-                        <span className="text-[12px] text-[#222222]">{m.full_name}</span>
-                      </div>
-                    ))}
-                    <p className="text-[11px] text-[#6a6a6a] mt-2">Your task templates are ready. When employees complete tasks, your Pulse metrics update in real time.</p>
-                  </div>
-                )}
-                {teamCount === 0 && (
-                  <p className="text-[11px] text-[#6a6a6a] mt-1">Once your first team member joins, we&apos;ll help you assign tasks so your Pulse starts filling with real data.</p>
+                {isDemoMode ? (
+                  <p className="text-[12px] text-[#6a6a6a]">In the demo, team members are pre-configured. In a real location, your team joins via this link.</p>
+                ) : (
+                  <>
+                    <p className="text-[12px] text-[#6a6a6a] font-medium">0 team members joined</p>
+                    <p className="text-[11px] text-[#6a6a6a] mt-1">Once your first team member joins, we&apos;ll help you assign tasks so your Pulse starts filling with real data.</p>
+                  </>
                 )}
               </div>
             </div>

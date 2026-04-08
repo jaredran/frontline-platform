@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth-context'
-import { getPulseMetrics, getLocation, getProfilesByLocation, getShiftsByLocation, getPlaybookCompletions, getResultsFeesForLocation, getInterventionTimeline, getTotalResultsFee, addLocation, addPulseMetric, addTask, setLMProgress } from '@/lib/data/store'
+import { getPulseMetrics, getLocation, getProfilesByLocation, getShiftsByLocation, getPlaybookCompletions, getResultsFeesForLocation, getInterventionTimeline, getTotalResultsFee, addLocation, addPulseMetric, addTask, setLMProgress, getLMProgress } from '@/lib/data/store'
 import { RoleShell } from '@/components/shared/role-shell'
 import { AIBriefing } from '@/components/shared/ai-briefing'
 import { PulseGrid } from '@/components/shared/pulse-card'
@@ -12,7 +12,7 @@ import { AttributionChart } from '@/components/shared/attribution-chart'
 
 import { Loader2, TrendingUp, X, Check, Info } from 'lucide-react'
 import { PULSE_METRICS } from '@/lib/types'
-import type { PulseMetric, RecommendedAction, GeneratedLocationSetup, Profile, Location } from '@/lib/types'
+import type { PulseMetric, RecommendedAction, GeneratedLocationSetup, Profile, Location, ResultsFee } from '@/lib/types'
 
 const cardShadow = 'rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px'
 
@@ -22,11 +22,32 @@ const IMPACT_BG: Record<string, string> = {
   low: 'bg-[#f7f7f7] text-[#6a6a6a]',
 }
 
+type PageData = {
+  location: Location | undefined
+  metrics: PulseMetric[]
+  locationProfiles: Profile[]
+  onShiftProfiles: Profile[]
+  avgQuality: number
+  resultsFees: ResultsFee[]
+  timeline: Awaited<ReturnType<typeof getInterventionTimeline>>
+  totalFee: number
+}
+
 export default function PulseDashboard() {
   const { user, loginWithNewProfile } = useAuth()
-  const [, forceUpdate] = useState(0)
   const [setupHydrated, setSetupHydrated] = useState(false)
+  const [pageData, setPageData] = useState<PageData | null>(null)
+  const [dataLoading, setDataLoading] = useState(true)
+  const [refreshTick, setRefreshTick] = useState(0)
 
+  const [selectedMetric, setSelectedMetric] = useState<PulseMetric | null>(null)
+  const [diagnosisText, setDiagnosisText] = useState('')
+  const [diagnosisActions, setDiagnosisActions] = useState<RecommendedAction[]>([])
+  const [isDiagnosing, setIsDiagnosing] = useState(false)
+  const [approvedActions, setApprovedActions] = useState<Set<number>>(new Set())
+  const [dismissedActions, setDismissedActions] = useState<Set<number>>(new Set())
+
+  // Step 1: Handle pending setup from onboarding hero
   useEffect(() => {
     if (setupHydrated) return
     const pendingRaw = localStorage.getItem('frontline_pending_setup')
@@ -42,7 +63,6 @@ export default function PulseDashboard() {
       const userId = `user-new-${now}`
       const today = new Date().toISOString().split('T')[0]
 
-      // Create profile
       const profile: Profile = {
         id: userId,
         org_id: 'org-1',
@@ -57,7 +77,6 @@ export default function PulseDashboard() {
         created_at: new Date().toISOString(),
       }
 
-      // Create location
       const location: Location = {
         id: locationId,
         org_id: 'org-1',
@@ -69,71 +88,117 @@ export default function PulseDashboard() {
         created_at: new Date().toISOString(),
       }
 
-      addLocation(location)
+      async function hydrateSetup() {
+        await addLocation(location)
 
-      // Add pulse metrics
-      for (const pm of setup.diagnosis.estimated_pulse) {
-        addPulseMetric({
-          id: `pm-new-${pm.metric_name}-${now}`,
-          location_id: locationId,
-          date: today,
-          metric_name: pm.metric_name,
-          actual: pm.estimated_value,
-          target: pm.target,
-          trend: pm.estimated_value < pm.target ? 'down' : 'up',
-          period: 'daily',
-          created_at: new Date().toISOString(),
-        })
+        for (const pm of setup.diagnosis.estimated_pulse) {
+          await addPulseMetric({
+            id: `pm-new-${pm.metric_name}-${now}`,
+            location_id: locationId,
+            date: today,
+            metric_name: pm.metric_name,
+            actual: pm.estimated_value,
+            target: pm.target,
+            trend: pm.estimated_value < pm.target ? 'down' : 'up',
+            period: 'daily',
+            created_at: new Date().toISOString(),
+          })
+        }
+
+        for (let i = 0; i < setup.task_templates.length; i++) {
+          const tmpl = setup.task_templates[i]
+          await addTask({
+            id: `task-new-${i}-${now}`,
+            shift_id: null,
+            location_id: locationId,
+            title: tmpl.title,
+            description: tmpl.description,
+            standard: null,
+            category: tmpl.category,
+            priority: tmpl.priority,
+            assigned_to: null,
+            status: 'pending',
+            quality_score: null,
+            completed_at: null,
+            due_by: null,
+            created_at: new Date().toISOString(),
+          })
+        }
+
+        await setLMProgress(locationId, 'invite_team')
+        loginWithNewProfile(profile)
+
+        const briefingFromDiagnosis = setup.diagnosis.root_causes
+          .map((rc, i) => `${i + 1}. ${rc.cause}: ${rc.reasoning}`)
+          .join('\n\n')
+        const actionsText = setup.diagnosis.recommended_actions
+          .map(a => `• ${a.action} (${a.expected_impact}, ${a.timeline})`)
+          .join('\n')
+        const initialBriefing = `Here's your initial diagnosis for ${setup.location_name}:\n\n${briefingFromDiagnosis}\n\nRecommended first actions:\n${actionsText}`
+        localStorage.setItem('frontline_initial_briefing', initialBriefing)
+        localStorage.removeItem('frontline_pending_setup')
+        setSetupHydrated(true)
       }
 
-      // Add tasks
-      setup.task_templates.forEach((tmpl, i) => {
-        addTask({
-          id: `task-new-${i}-${now}`,
-          shift_id: null,
-          location_id: locationId,
-          title: tmpl.title,
-          description: tmpl.description,
-          standard: null,
-          category: tmpl.category,
-          priority: tmpl.priority,
-          assigned_to: null,
-          status: 'pending',
-          quality_score: null,
-          completed_at: null,
-          due_by: null,
-          created_at: new Date().toISOString(),
-        })
+      hydrateSetup().catch((e) => {
+        console.error('Failed to hydrate setup:', e)
+        localStorage.removeItem('frontline_pending_setup')
+        setSetupHydrated(true)
       })
-
-      setLMProgress('invite_team')
-      loginWithNewProfile(profile)
-
-      // Save the hero diagnosis as the initial briefing
-      const briefingFromDiagnosis = setup.diagnosis.root_causes
-        .map((rc, i) => `${i + 1}. ${rc.cause}: ${rc.reasoning}`)
-        .join('\n\n')
-      const actionsText = setup.diagnosis.recommended_actions
-        .map(a => `• ${a.action} (${a.expected_impact}, ${a.timeline})`)
-        .join('\n')
-      const initialBriefing = `Here's your initial diagnosis for ${setup.location_name}:\n\n${briefingFromDiagnosis}\n\nRecommended first actions:\n${actionsText}`
-      localStorage.setItem('frontline_initial_briefing', initialBriefing)
-
-      // Clear the pending setup
-      localStorage.removeItem('frontline_pending_setup')
     } catch (e) {
       console.error('Failed to hydrate setup:', e)
       localStorage.removeItem('frontline_pending_setup')
+      setSetupHydrated(true)
+    }
+  }, [setupHydrated, loginWithNewProfile])
+
+  // Step 2: Load page data from Supabase once setup is done and user is available
+  useEffect(() => {
+    if (!setupHydrated || !user?.location_id) return
+    const locationId = user.location_id
+
+    async function loadData() {
+      setDataLoading(true)
+      const today = new Date().toISOString().split('T')[0]
+      const [loc, metrics, locProfiles, todayShifts, fees, timeline, totalFee] = await Promise.all([
+        getLocation(locationId),
+        getPulseMetrics(locationId),
+        getProfilesByLocation(locationId),
+        getShiftsByLocation(locationId, today),
+        getResultsFeesForLocation(locationId),
+        getInterventionTimeline(locationId),
+        getTotalResultsFee(),
+      ])
+
+      const onShiftIds = new Set(
+        todayShifts.flatMap(s => s.assignments?.map(a => a.profile_id) ?? [])
+      )
+      const feProfiles = locProfiles.filter(p => p.role === 'fe')
+      const onShiftProfiles = feProfiles.filter(p => onShiftIds.has(p.id))
+
+      const scores = todayShifts
+        .flatMap(s => s.tasks ?? [])
+        .filter(t => t.status === 'completed' && t.quality_score !== null)
+        .map(t => t.quality_score as number)
+      const avgQuality = scores.length > 0
+        ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+        : 0
+
+      setPageData({
+        location: loc,
+        metrics,
+        locationProfiles: feProfiles,
+        onShiftProfiles,
+        avgQuality,
+        resultsFees: fees,
+        timeline,
+        totalFee,
+      })
+      setDataLoading(false)
     }
 
-    setSetupHydrated(true)
-  }, [setupHydrated, loginWithNewProfile])
-  const [selectedMetric, setSelectedMetric] = useState<PulseMetric | null>(null)
-  const [diagnosisText, setDiagnosisText] = useState('')
-  const [diagnosisActions, setDiagnosisActions] = useState<RecommendedAction[]>([])
-  const [isDiagnosing, setIsDiagnosing] = useState(false)
-  const [approvedActions, setApprovedActions] = useState<Set<number>>(new Set())
-  const [dismissedActions, setDismissedActions] = useState<Set<number>>(new Set())
+    loadData()
+  }, [setupHydrated, user, refreshTick])
 
   if (!setupHydrated) {
     return (
@@ -151,24 +216,17 @@ export default function PulseDashboard() {
   const locationId = user.location_id
   if (!locationId) return null
 
-  const location = getLocation(locationId)
-  const metrics = getPulseMetrics(locationId)
+  if (dataLoading || !pageData) {
+    return (
+      <RoleShell role="lm">
+        <div className="min-h-screen flex items-center justify-center bg-white">
+          <Loader2 className="h-6 w-6 animate-spin text-[#ff385c]" />
+        </div>
+      </RoleShell>
+    )
+  }
 
-  // Team strip data
-  const today = new Date().toISOString().split('T')[0]
-  const todayShifts = getShiftsByLocation(locationId, today)
-  const onShiftIds = new Set(
-    todayShifts.flatMap(s => s.assignments?.map(a => a.profile_id) ?? [])
-  )
-  const locationProfiles = getProfilesByLocation(locationId).filter(p => p.role === 'fe')
-  const onShiftProfiles = locationProfiles.filter(p => onShiftIds.has(p.id))
-  const avgQuality = (() => {
-    const scores = todayShifts
-      .flatMap(s => s.tasks ?? [])
-      .filter(t => t.status === 'completed' && t.quality_score !== null)
-      .map(t => t.quality_score as number)
-    return scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0
-  })()
+  const { location, metrics, locationProfiles, onShiftProfiles, avgQuality, resultsFees, timeline, totalFee } = pageData
 
   const todayFormatted = new Date().toLocaleDateString('en-US', {
     weekday: 'short',
@@ -189,7 +247,6 @@ export default function PulseDashboard() {
       setDiagnosisText(metric.diagnosis.diagnosis)
       setDiagnosisActions(metric.diagnosis.recommended_actions)
     } else {
-      // Auto-diagnose instead of waiting for button click
       setDiagnosisText('')
       setDiagnosisActions([])
       setTimeout(() => {
@@ -237,16 +294,13 @@ export default function PulseDashboard() {
         const { done, value } = await reader.read()
         if (done) break
         accumulated += decoder.decode(value, { stream: true })
-        // DON'T set diagnosisText during streaming — buffer it
       }
 
-      // Now format the response before displaying
       try {
         const jsonMatch = accumulated.match(/\{[\s\S]*\}/)
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0])
 
-          // Build formatted diagnosis text
           let formattedText = ''
           if (parsed.diagnosis) {
             formattedText = parsed.diagnosis
@@ -264,11 +318,9 @@ export default function PulseDashboard() {
             setDiagnosisActions(parsed.recommended_actions)
           }
         } else {
-          // Not JSON — display as-is (it's already plain text)
           setDiagnosisText(accumulated)
         }
       } catch {
-        // JSON parse failed — display as-is
         setDiagnosisText(accumulated)
       }
     } catch {
@@ -285,6 +337,24 @@ export default function PulseDashboard() {
     ? PULSE_METRICS[selectedMetric.metric_name as keyof typeof PULSE_METRICS]
     : null
 
+  // Build playbookGaps for AI Briefing context
+  async function buildPlaybookGaps() {
+    const gaps = await Promise.all(
+      locationProfiles.map(async p => {
+        const completions = await getPlaybookCompletions(undefined, p.id)
+        const completedIds = completions.map(c => c.playbook_id)
+        return {
+          name: p.full_name,
+          missingPlaybooks: ['pb-food-safety', 'pb-customer-service'].filter(id => !completedIds.includes(id)).length,
+          avgScore: completions.length > 0
+            ? Math.round(completions.reduce((s, c) => s + c.score, 0) / completions.length)
+            : null,
+        }
+      })
+    )
+    return gaps.filter(g => g.missingPlaybooks > 0 || (g.avgScore !== null && g.avgScore < 80))
+  }
+
   return (
     <RoleShell role="lm">
     <div className="bg-white min-h-full">
@@ -299,15 +369,14 @@ export default function PulseDashboard() {
             teamSize: locationProfiles.length,
             onShiftCount: onShiftProfiles.length,
             avgQuality,
-            trainingGaps: locationProfiles.map(p => {
-              const completions = getPlaybookCompletions(undefined, p.id)
-              const completedIds = completions.map(c => c.playbook_id)
-              return { name: p.full_name, missingPlaybooks: ['pb-food-safety', 'pb-customer-service'].filter(id => !completedIds.includes(id)).length, avgScore: completions.length > 0 ? Math.round(completions.reduce((s, c) => s + c.score, 0) / completions.length) : null }
-            }).filter(g => g.missingPlaybooks > 0 || (g.avgScore !== null && g.avgScore < 80)),
           }}
           accentColor="#ff385c"
         />
-        <NextStepCard onAdvance={() => forceUpdate(n => n + 1)} locationId={locationId} isDemoMode={isDemoData} />
+        <NextStepCard
+          onAdvance={() => setRefreshTick(n => n + 1)}
+          locationId={locationId}
+          isDemoMode={isDemoData}
+        />
         {/* Location header */}
         <div className="px-5 py-4 border-b border-[#ebebeb]">
           <h1
@@ -508,50 +577,44 @@ export default function PulseDashboard() {
         )}
 
         {/* Results & Impact */}
-        {(() => {
-          const resultsFees = getResultsFeesForLocation(locationId)
-          const timeline = getInterventionTimeline(locationId)
-          const totalFee = getTotalResultsFee()
-          if (resultsFees.length === 0) return null
-          return (
-            <div className="mx-5 mt-4 bg-[#f7f7f7] rounded-[20px] px-5 py-4" style={{ boxShadow: cardShadow }}>
-              <div className="flex items-center gap-2 mb-3">
-                <TrendingUp className="h-4 w-4 text-[#ff385c]" />
-                <h2 className="text-[15px] font-bold text-[#222222]">Results &amp; Impact</h2>
-              </div>
-              <div className="space-y-4">
-                {timeline.map(({ intervention, metricHistories }) => {
-                  const fee = resultsFees.find(r => r.intervention_id === intervention.id)
-                  if (!fee) return null
-                  const metricMeta = PULSE_METRICS[fee.metric_name as keyof typeof PULSE_METRICS]
-                  const ts = metricHistories[fee.metric_name]
-                  return (
-                    <div key={intervention.id} className="bg-white rounded-[14px] p-4" style={{ boxShadow: cardShadow }}>
-                      <p className="text-[13px] font-semibold text-[#222222]">{intervention.description}</p>
-                      {ts && metricMeta && (
-                        <AttributionChart
-                          timeSeries={ts}
-                          interventionDate={intervention.started_at}
-                          metricLabel={metricMeta.label}
-                          unit={metricMeta.unit}
-                        />
-                      )}
-                      <p className="text-[12px] text-[#6a6a6a] mt-2">
-                        {metricMeta?.label ?? fee.metric_name} +{fee.improvement_points} points{' '}
-                        <span className="mx-1">&rarr;</span> Est. value: ${fee.estimated_value.toLocaleString()}/month{' '}
-                        <span className="mx-1">&rarr;</span> Results fee: <span className="font-semibold text-[#222222]">${fee.fee.toLocaleString()}/month</span>
-                      </p>
-                    </div>
-                  )
-                })}
-              </div>
-              <div className="mt-3 pt-3 border-t border-[#ebebeb] text-right">
-                <span className="text-[13px] text-[#6a6a6a]">Your total results fee this month: </span>
-                <span className="text-[15px] font-bold text-[#222222]">${totalFee.toLocaleString()}</span>
-              </div>
+        {resultsFees.length > 0 && (
+          <div className="mx-5 mt-4 bg-[#f7f7f7] rounded-[20px] px-5 py-4" style={{ boxShadow: cardShadow }}>
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp className="h-4 w-4 text-[#ff385c]" />
+              <h2 className="text-[15px] font-bold text-[#222222]">Results &amp; Impact</h2>
             </div>
-          )
-        })()}
+            <div className="space-y-4">
+              {timeline.map(({ intervention, metricHistories }) => {
+                const fee = resultsFees.find(r => r.intervention_id === intervention.id)
+                if (!fee) return null
+                const metricMeta = PULSE_METRICS[fee.metric_name as keyof typeof PULSE_METRICS]
+                const ts = metricHistories[fee.metric_name]
+                return (
+                  <div key={intervention.id} className="bg-white rounded-[14px] p-4" style={{ boxShadow: cardShadow }}>
+                    <p className="text-[13px] font-semibold text-[#222222]">{intervention.description}</p>
+                    {ts && metricMeta && (
+                      <AttributionChart
+                        timeSeries={ts}
+                        interventionDate={intervention.started_at}
+                        metricLabel={metricMeta.label}
+                        unit={metricMeta.unit}
+                      />
+                    )}
+                    <p className="text-[12px] text-[#6a6a6a] mt-2">
+                      {metricMeta?.label ?? fee.metric_name} +{fee.improvement_points} points{' '}
+                      <span className="mx-1">&rarr;</span> Est. value: ${fee.estimated_value.toLocaleString()}/month{' '}
+                      <span className="mx-1">&rarr;</span> Results fee: <span className="font-semibold text-[#222222]">${fee.fee.toLocaleString()}/month</span>
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="mt-3 pt-3 border-t border-[#ebebeb] text-right">
+              <span className="text-[13px] text-[#6a6a6a]">Your total results fee this month: </span>
+              <span className="text-[15px] font-bold text-[#222222]">${totalFee.toLocaleString()}</span>
+            </div>
+          </div>
+        )}
 
         {/* Team strip */}
         <div className="border-t border-[#ebebeb] px-5 py-3 mt-4">

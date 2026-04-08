@@ -1,11 +1,9 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import {
   getAllLocations,
-  getPulseMetrics,
-  getProfilesByLocation,
   getAllInterventions,
   getAllPulseMetrics,
   getInterventionTimeline,
@@ -20,8 +18,9 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  Loader2,
 } from 'lucide-react'
-import { PULSE_METRICS, type PulseMetric, type Intervention, type MetricTimeSeries } from '@/lib/types'
+import { PULSE_METRICS, type PulseMetric, type Intervention, type MetricTimeSeries, type Location } from '@/lib/types'
 
 const CARD_SHADOW = 'rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px'
 
@@ -73,28 +72,64 @@ function getInterventionStatus(intervention: Intervention): { label: string; col
   return { label: 'Stalled', color: 'text-[#6a6a6a]' }
 }
 
+type LocationData = {
+  location: Location
+  metrics: PulseMetric[]
+  health: number
+  dots: { onTarget: number; offTarget: number }
+  interventions: Intervention[]
+}
+
+type TimelineEntry = {
+  intervention: Intervention
+  metricHistories: Record<string, MetricTimeSeries | undefined>
+}
+
 export default function OpsPage() {
   const { user } = useAuth()
   const [expandedLocation, setExpandedLocation] = useState<string | null>(null)
+  const [locationData, setLocationData] = useState<LocationData[]>([])
+  const [allInterventions, setAllInterventions] = useState<Intervention[]>([])
+  const [allMetrics, setAllMetrics] = useState<PulseMetric[]>([])
+  const [expandedTimelines, setExpandedTimelines] = useState<Record<string, TimelineEntry[]>>({})
+  const [dataLoaded, setDataLoaded] = useState(false)
+
+  useEffect(() => {
+    async function load() {
+      const [locs, interventions, metrics] = await Promise.all([
+        getAllLocations(),
+        getAllInterventions(),
+        getAllPulseMetrics(),
+      ])
+
+      const locData: LocationData[] = locs
+        .map(loc => {
+          const locMetrics = metrics.filter(m => m.location_id === loc.id)
+          const health = getLocationHealthScore(locMetrics)
+          const dots = getHealthDots(locMetrics)
+          const locInterventions = interventions.filter(i => i.location_id === loc.id)
+          return { location: loc, metrics: locMetrics, health, dots, interventions: locInterventions }
+        })
+        .sort((a, b) => a.health - b.health)
+
+      setLocationData(locData)
+      setAllInterventions(interventions)
+      setAllMetrics(metrics)
+      setDataLoaded(true)
+    }
+    load()
+  }, [])
+
+  // When a location is expanded, load its timeline
+  useEffect(() => {
+    if (!expandedLocation) return
+    if (expandedTimelines[expandedLocation]) return
+    getInterventionTimeline(expandedLocation).then(timeline => {
+      setExpandedTimelines(prev => ({ ...prev, [expandedLocation]: timeline }))
+    })
+  }, [expandedLocation, expandedTimelines])
 
   if (!user) return null
-
-  const locations = getAllLocations()
-  const allInterventions = getAllInterventions()
-  const allMetrics = getAllPulseMetrics()
-
-  // Per-location data, sorted worst-first
-  const locationData = useMemo(() => {
-    return locations
-      .map(loc => {
-        const metrics = getPulseMetrics(loc.id)
-        const health = getLocationHealthScore(metrics)
-        const dots = getHealthDots(metrics)
-        const interventions = allInterventions.filter(i => i.location_id === loc.id)
-        return { location: loc, metrics, health, dots, interventions }
-      })
-      .sort((a, b) => a.health - b.health)
-  }, [locations, allInterventions])
 
   // AI insight: find worst location and summarize
   const aiInsight = useMemo(() => {
@@ -139,6 +174,14 @@ export default function OpsPage() {
     return gap >= 0 ? 'text-[#008a05]' : 'text-[#c13515]'
   }
 
+  if (!dataLoaded) {
+    return (
+      <div className="bg-white min-h-screen flex items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-[#ff385c]" />
+      </div>
+    )
+  }
+
   return (
     <div className="bg-white min-h-screen">
       {/* AI briefing */}
@@ -154,12 +197,13 @@ export default function OpsPage() {
           interventions: allInterventions.map(i => ({
             type: i.type,
             description: i.description,
-            locationName: locations.find(l => l.id === i.location_id)?.name || 'Org-wide',
+            locationName: locationData.find(ld => ld.location.id === i.location_id)?.location.name || 'Org-wide',
             metricsBefore: i.metrics_before,
             metricsAfter: i.metrics_after,
             startedAt: i.started_at,
           })),
           orgAverages: { taskCompletion: orgAvg.taskCompletion, quality: orgAvg.qualityScore, compliance: orgAvg.complianceRate },
+          aiInsight,
         }}
       />
 
@@ -167,6 +211,7 @@ export default function OpsPage() {
       <div className="mt-4">
         {locationData.map(({ location, metrics, dots, interventions }) => {
           const isExpanded = expandedLocation === location.id
+          const timeline = expandedTimelines[location.id] ?? []
 
           return (
             <div key={location.id} className="border-b border-[#ebebeb]">
@@ -254,72 +299,69 @@ export default function OpsPage() {
                       <p className="text-[13px] text-[#6a6a6a]">No active interventions at this location</p>
                     ) : (
                       <div className="space-y-2">
-                        {(() => {
-                          const timeline = getInterventionTimeline(location.id)
-                          return interventions.map(iv => {
-                            const ivStatus = getInterventionStatus(iv)
-                            const typeColor = TYPE_BADGE_COLORS[iv.type] || 'bg-[#f7f7f7] text-[#6a6a6a]'
+                        {interventions.map(iv => {
+                          const ivStatus = getInterventionStatus(iv)
+                          const typeColor = TYPE_BADGE_COLORS[iv.type] || 'bg-[#f7f7f7] text-[#6a6a6a]'
 
-                            // Attribution: before -> after
-                            const beforeKeys = iv.metrics_before ? Object.keys(iv.metrics_before) : []
-                            const hasBefore = beforeKeys.length > 0 && iv.metrics_after
+                          // Attribution: before -> after
+                          const beforeKeys = iv.metrics_before ? Object.keys(iv.metrics_before) : []
+                          const hasBefore = beforeKeys.length > 0 && iv.metrics_after
 
-                            // Find matching timeline entry for this intervention
-                            const timelineEntry = timeline.find(t => t.intervention.id === iv.id)
+                          // Find matching timeline entry for this intervention
+                          const timelineEntry = timeline.find(t => t.intervention.id === iv.id)
 
-                            return (
-                              <div key={iv.id} className="bg-white rounded-[14px] p-4" style={{ boxShadow: CARD_SHADOW }}>
-                                <div className="flex items-center gap-2">
-                                  <span className={`text-[11px] font-semibold uppercase px-3 py-1 rounded-full ${typeColor}`}>
-                                    {iv.type}
-                                  </span>
-                                  <span className={`text-[11px] font-semibold ${ivStatus.color}`}>
-                                    {ivStatus.label}
-                                  </span>
-                                </div>
-                                <p className="text-[13px] text-[#222222] mt-2">{iv.description}</p>
-                                {hasBefore && iv.metrics_before && iv.metrics_after && (
-                                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-                                    {beforeKeys.map(key => {
-                                      const before = iv.metrics_before![key]
-                                      const after = iv.metrics_after![key]
-                                      const delta = after - before
-                                      const metaKey = key as keyof typeof PULSE_METRICS
-                                      const label = PULSE_METRICS[metaKey]?.label ?? key
-                                      return (
-                                        <span key={key} className="text-[11px] text-[#6a6a6a]">
-                                          {label}: {Math.round(before)} &rarr; {Math.round(after)}{' '}
-                                          <span className={delta >= 0 ? 'text-[#008a05] font-semibold' : 'text-[#c13515] font-semibold'}>
-                                            {delta >= 0 ? '+' : ''}{Math.round(delta)}
-                                          </span>
-                                        </span>
-                                      )
-                                    })}
-                                  </div>
-                                )}
-                                {/* Attribution charts for metrics with time series data */}
-                                {hasBefore && timelineEntry && (
-                                  <div className="mt-3 space-y-3">
-                                    {beforeKeys.map(key => {
-                                      const metaKey = key as keyof typeof PULSE_METRICS
-                                      const timeSeries = timelineEntry.metricHistories[key]
-                                      if (!timeSeries) return null
-                                      return (
-                                        <AttributionChart
-                                          key={key}
-                                          timeSeries={timeSeries}
-                                          interventionDate={iv.started_at}
-                                          metricLabel={PULSE_METRICS[metaKey]?.label || key}
-                                          unit={key === 'customer_satisfaction' ? '' : '%'}
-                                        />
-                                      )
-                                    })}
-                                  </div>
-                                )}
+                          return (
+                            <div key={iv.id} className="bg-white rounded-[14px] p-4" style={{ boxShadow: CARD_SHADOW }}>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[11px] font-semibold uppercase px-3 py-1 rounded-full ${typeColor}`}>
+                                  {iv.type}
+                                </span>
+                                <span className={`text-[11px] font-semibold ${ivStatus.color}`}>
+                                  {ivStatus.label}
+                                </span>
                               </div>
-                            )
-                          })
-                        })()}
+                              <p className="text-[13px] text-[#222222] mt-2">{iv.description}</p>
+                              {hasBefore && iv.metrics_before && iv.metrics_after && (
+                                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                                  {beforeKeys.map(key => {
+                                    const before = iv.metrics_before![key]
+                                    const after = iv.metrics_after![key]
+                                    const delta = after - before
+                                    const metaKey = key as keyof typeof PULSE_METRICS
+                                    const label = PULSE_METRICS[metaKey]?.label ?? key
+                                    return (
+                                      <span key={key} className="text-[11px] text-[#6a6a6a]">
+                                        {label}: {Math.round(before)} &rarr; {Math.round(after)}{' '}
+                                        <span className={delta >= 0 ? 'text-[#008a05] font-semibold' : 'text-[#c13515] font-semibold'}>
+                                          {delta >= 0 ? '+' : ''}{Math.round(delta)}
+                                        </span>
+                                      </span>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                              {/* Attribution charts for metrics with time series data */}
+                              {hasBefore && timelineEntry && (
+                                <div className="mt-3 space-y-3">
+                                  {beforeKeys.map(key => {
+                                    const metaKey = key as keyof typeof PULSE_METRICS
+                                    const timeSeries = timelineEntry.metricHistories[key]
+                                    if (!timeSeries) return null
+                                    return (
+                                      <AttributionChart
+                                        key={key}
+                                        timeSeries={timeSeries}
+                                        interventionDate={iv.started_at}
+                                        metricLabel={PULSE_METRICS[metaKey]?.label || key}
+                                        unit={key === 'customer_satisfaction' ? '' : '%'}
+                                      />
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
                     )}
                   </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react'
 import type { Profile } from './types'
 import { getProfile, addProfile } from './data/store'
 
@@ -21,27 +21,33 @@ const AuthContext = createContext<AuthContextType>({
 })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<Profile | null>(() => {
-    if (typeof window === 'undefined') return null
+  const [user, setUser] = useState<Profile | null>(null)
+
+  // On mount, restore session from localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return
     const saved = localStorage.getItem('demo_user_id')
     if (saved) {
-      return getProfile(saved) || null
-    }
-    return null
-  })
-
-  const login = useCallback((userId: string) => {
-    const profile = getProfile(userId)
-    if (profile) {
-      setUser(profile)
-      localStorage.setItem('demo_user_id', userId)
+      getProfile(saved).then((profile) => {
+        if (profile) setUser(profile)
+      })
     }
   }, [])
 
+  const login = useCallback((userId: string) => {
+    getProfile(userId).then((profile) => {
+      if (profile) {
+        setUser(profile)
+        localStorage.setItem('demo_user_id', userId)
+      }
+    })
+  }, [])
+
   const loginWithNewProfile = useCallback((profile: Profile) => {
-    addProfile(profile)
-    setUser(profile)
-    localStorage.setItem('demo_user_id', profile.id)
+    addProfile(profile).then(() => {
+      setUser(profile)
+      localStorage.setItem('demo_user_id', profile.id)
+    })
   }, [])
 
   const logout = useCallback(() => {

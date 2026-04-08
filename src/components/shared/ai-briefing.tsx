@@ -56,12 +56,13 @@ export function AIBriefing({ role, contextData, accentColor = '#ff385c' }: AIBri
       return
     }
 
-    if (!canAffordAction('briefing')) {
+    const canAfford = await canAffordAction('briefing')
+    if (!canAfford) {
       setShowUpgrade(true)
       setLoading(false)
       return
     }
-    consumeCredits('briefing')
+    await consumeCredits('briefing')
 
     try {
       const res = await fetch('/api/ai/briefing', {
@@ -102,11 +103,12 @@ export function AIBriefing({ role, contextData, accentColor = '#ff385c' }: AIBri
   async function handleSend() {
     if (!input.trim() || chatLoading) return
 
-    if (!canAffordAction('ask')) {
+    const canAfford = await canAffordAction('ask')
+    if (!canAfford) {
       setShowUpgrade(true)
       return
     }
-    consumeCredits('ask')
+    await consumeCredits('ask')
 
     const userMessage = input.trim()
     setInput('')

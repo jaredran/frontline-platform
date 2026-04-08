@@ -25,12 +25,13 @@ export function InlineAI({ placeholder, endpoint, buildPayload, compact = false,
   async function handleSend() {
     if (!input.trim() || loading) return
 
-    if (checkCredits && actionType && !canAffordAction(actionType)) {
-      setShowUpgrade(true)
-      return
-    }
     if (checkCredits && actionType) {
-      consumeCredits(actionType)
+      const canAfford = await canAffordAction(actionType)
+      if (!canAfford) {
+        setShowUpgrade(true)
+        return
+      }
+      await consumeCredits(actionType)
     }
 
     const msg = input.trim()

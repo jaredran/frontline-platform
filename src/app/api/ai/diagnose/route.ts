@@ -8,10 +8,14 @@ export async function POST(req: NextRequest) {
     const { metric_name: metricName, actual, target, trend, location_name: locationName, location_id: locationId } = await req.json()
 
     // Gather context data
-    const allMetrics = getPulseMetrics(locationId)
-    const locationTasks = getTasksByLocation(locationId)
-    const employees = getProfilesByLocation(locationId).filter(p => p.role === 'fe')
-    const completions = employees.flatMap(e => getPlaybookCompletions(undefined, e.id))
+    const [allMetrics, locationTasks, allEmployees] = await Promise.all([
+      getPulseMetrics(locationId),
+      getTasksByLocation(locationId),
+      getProfilesByLocation(locationId),
+    ])
+
+    const employees = allEmployees.filter(p => p.role === 'fe')
+    const completions = (await Promise.all(employees.map(e => getPlaybookCompletions(undefined, e.id)))).flat()
 
     const completedTasks = locationTasks.filter(t => t.status === 'completed')
     const avgQuality = completedTasks.length > 0

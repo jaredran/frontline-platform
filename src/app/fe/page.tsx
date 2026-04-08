@@ -1,13 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { getShiftsForEmployee, updateTaskStatus, getProfile, getPlaybookCompletions, getRelevantPlaybook } from '@/lib/data/store'
 import { AIBriefing } from '@/components/shared/ai-briefing'
 import { InlineAI } from '@/components/shared/inline-ai'
 
 import { Loader2, FileText, AlertTriangle, CheckCircle2 } from 'lucide-react'
-import type { Task, TaskStatus } from '@/lib/types'
+import type { Task, TaskStatus, Shift, Profile, PlaybookCompletion, RelevantPlaybook } from '@/lib/types'
 
 const STATUS_DOT: Record<TaskStatus, string> = {
   completed: 'bg-[#008a05]',
@@ -22,18 +22,59 @@ export default function MyShiftPage() {
   const { user } = useAuth()
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [completing, setCompleting] = useState<string | null>(null)
-  const [, setTick] = useState(0)
   const [handoffText, setHandoffText] = useState('')
   const [handoffLoading, setHandoffLoading] = useState(false)
   const [dismissedKnowledge, setDismissedKnowledge] = useState<Set<string>>(new Set())
 
-  if (!user) return null
+  // Async data
+  const [shifts, setShifts] = useState<Shift[]>([])
+  const [profile, setProfile] = useState<Profile | undefined>(undefined)
+  const [playbookCompletions, setPlaybookCompletions] = useState<PlaybookCompletion[]>([])
+  const [relevantPlaybooks, setRelevantPlaybooks] = useState<Record<string, RelevantPlaybook | null>>({})
+  const [dataLoaded, setDataLoaded] = useState(false)
 
   const today = new Date().toISOString().split('T')[0]
-  const shifts = getShiftsForEmployee(user.id, today)
-  const currentShift = shifts.find(s => s.status === 'active') || shifts[0]
-  const profile = getProfile(user.id)
 
+  useEffect(() => {
+    if (!user) return
+    async function load() {
+      const [shiftsData, profileData, completions] = await Promise.all([
+        getShiftsForEmployee(user!.id, today),
+        getProfile(user!.id),
+        getPlaybookCompletions(undefined, user!.id),
+      ])
+      setShifts(shiftsData)
+      setProfile(profileData)
+      setPlaybookCompletions(completions)
+      setDataLoaded(true)
+    }
+    load()
+  }, [user, today])
+
+  // Load relevant playbooks for each unique task category
+  useEffect(() => {
+    if (!user || !dataLoaded) return
+    const currentShift = shifts.find(s => s.status === 'active') || shifts[0]
+    const tasks: Task[] = currentShift?.tasks ?? []
+    const categories = [...new Set(tasks.map(t => t.category))]
+    Promise.all(
+      categories.map(async (cat) => {
+        const rp = await getRelevantPlaybook(cat, user!.id)
+        return [cat, rp] as [string, RelevantPlaybook | null]
+      })
+    ).then(entries => setRelevantPlaybooks(Object.fromEntries(entries)))
+  }, [user, shifts, dataLoaded])
+
+  if (!user) return null
+  if (!dataLoaded) {
+    return (
+      <div className="bg-white min-h-full flex items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-[#ff385c]" />
+      </div>
+    )
+  }
+
+  const currentShift = shifts.find(s => s.status === 'active') || shifts[0]
   const tasks: Task[] = currentShift?.tasks ?? []
   const sortedTasks = [...tasks].sort((a, b) => {
     if (!a.due_by) return 1
@@ -59,10 +100,12 @@ export default function MyShiftPage() {
   async function handleComplete(taskId: string) {
     setCompleting(taskId)
     const score = Math.floor(Math.random() * 15) + 85
-    updateTaskStatus(taskId, 'completed', score)
+    await updateTaskStatus(taskId, 'completed', score)
+    // Refresh shifts
+    const shiftsData = await getShiftsForEmployee(user!.id, today)
+    setShifts(shiftsData)
     await new Promise(r => setTimeout(r, 300))
     setCompleting(null)
-    setTick(t => t + 1)
   }
 
   async function handleHandoff() {
@@ -107,7 +150,7 @@ export default function MyShiftPage() {
             locationName: currentShift?.location?.name,
             todaysTasks: tasks.map(t => ({ title: t.title, category: t.category, status: t.status, qualityScore: t.quality_score })),
             skills: profile?.skills,
-            playbookGaps: getPlaybookCompletions(undefined, user.id).filter(c => c.score < 80).map(c => ({ playbook: c.playbook?.title, score: c.score })),
+            playbookGaps: playbookCompletions.filter(c => c.score < 80).map(c => ({ playbook: c.playbook?.title, score: c.score })),
           }}
           accentColor="#ff385c"
         />
@@ -144,6 +187,7 @@ export default function MyShiftPage() {
               const isExpanded = expandedId === task.id
               const isCompleting = completing === task.id
               const isDone = task.status === 'completed'
+              const relevant = relevantPlaybooks[task.category]
 
               return (
                 <div key={task.id}>
@@ -182,46 +226,37 @@ export default function MyShiftPage() {
                       className="bg-[#f7f7f7] rounded-[20px] mx-5 my-2 p-5 space-y-4"
                       style={{ boxShadow: cardShadow }}
                     >
-                      {(() => {
-                        const relevant = getRelevantPlaybook(task.category, user.id)
-                        if (!relevant) return null
-                        if (relevant.needsReinforcement && !dismissedKnowledge.has(task.id)) {
-                          return (
-                            <div className="mb-4 bg-[#fff8e1] border border-[#ffe082] rounded-[14px] p-4">
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                  <AlertTriangle className="h-4 w-4 text-[#c13515]" />
-                                  <span className="text-[13px] font-semibold text-[#222222]">Key procedure for this task</span>
-                                </div>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setDismissedKnowledge(prev => new Set(prev).add(task.id)) }}
-                                  className="text-[11px] text-[#6a6a6a] hover:text-[#222222] font-medium"
-                                >
-                                  Hide
-                                </button>
-                              </div>
-                              {relevant.playbook.content.steps.map((step, i) => (
-                                <div key={i} className="mb-2 last:mb-0">
-                                  <p className="text-[13px] font-semibold text-[#222222]">{i + 1}. {step.title}</p>
-                                  <p className="text-[12px] text-[#6a6a6a] mt-0.5">{step.instructions}</p>
-                                </div>
-                              ))}
-                              {relevant.score !== null && (
-                                <p className="text-[12px] text-[#c13515] font-medium mt-2">Your score: {relevant.score}% — practice makes perfect!</p>
-                              )}
+                      {relevant && relevant.needsReinforcement && !dismissedKnowledge.has(task.id) && (
+                        <div className="mb-4 bg-[#fff8e1] border border-[#ffe082] rounded-[14px] p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <AlertTriangle className="h-4 w-4 text-[#c13515]" />
+                              <span className="text-[13px] font-semibold text-[#222222]">Key procedure for this task</span>
                             </div>
-                          )
-                        }
-                        if (!relevant.needsReinforcement) {
-                          return (
-                            <div className="mb-3 flex items-center gap-2 bg-[#e8f5e9] rounded-[14px] px-3 py-2">
-                              <CheckCircle2 className="h-4 w-4 text-[#008a05]" />
-                              <span className="text-[13px] font-medium text-[#008a05]">You've mastered this — score: {relevant.score}%</span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDismissedKnowledge(prev => new Set(prev).add(task.id)) }}
+                              className="text-[11px] text-[#6a6a6a] hover:text-[#222222] font-medium"
+                            >
+                              Hide
+                            </button>
+                          </div>
+                          {relevant.playbook.content.steps.map((step, i) => (
+                            <div key={i} className="mb-2 last:mb-0">
+                              <p className="text-[13px] font-semibold text-[#222222]">{i + 1}. {step.title}</p>
+                              <p className="text-[12px] text-[#6a6a6a] mt-0.5">{step.instructions}</p>
                             </div>
-                          )
-                        }
-                        return null
-                      })()}
+                          ))}
+                          {relevant.score !== null && (
+                            <p className="text-[12px] text-[#c13515] font-medium mt-2">Your score: {relevant.score}% — practice makes perfect!</p>
+                          )}
+                        </div>
+                      )}
+                      {relevant && !relevant.needsReinforcement && (
+                        <div className="mb-3 flex items-center gap-2 bg-[#e8f5e9] rounded-[14px] px-3 py-2">
+                          <CheckCircle2 className="h-4 w-4 text-[#008a05]" />
+                          <span className="text-[13px] font-medium text-[#008a05]">You&apos;ve mastered this — score: {relevant.score}%</span>
+                        </div>
+                      )}
                       {task.description && (
                         <p className="text-sm text-[#222222] leading-relaxed">
                           {task.description}

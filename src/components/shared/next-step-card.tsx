@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Users, BookOpen, Activity, Zap, TrendingUp, ChevronDown, Copy, Check, Loader2 } from 'lucide-react'
 import { getLMProgress, advanceLMProgress, getProfilesByLocation } from '@/lib/data/store'
-import type { LMProgressStep } from '@/lib/types'
+import type { LMProgressStep, Profile } from '@/lib/types'
 
 interface NextStepCardProps {
   onAdvance?: () => void
@@ -46,25 +46,35 @@ const STEP_CONFIG: Record<Exclude<LMProgressStep, 'complete'>, {
 }
 
 export function NextStepCard({ onAdvance, locationId, isDemoMode }: NextStepCardProps) {
-  const [step, setStep] = useState<LMProgressStep>(getLMProgress())
+  const [step, setStep] = useState<LMProgressStep>('invite_team')
+  const [stepLoaded, setStepLoaded] = useState(false)
   const [copied, setCopied] = useState(false)
   const [playbookTopic, setPlaybookTopic] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [playbookSuccess, setPlaybookSuccess] = useState(false)
+  const [teamMembers, setTeamMembers] = useState<Profile[]>([])
 
-  // Team members for invite_team step
-  const teamMembers = locationId
-    ? getProfilesByLocation(locationId).filter(p => p.role === 'fe')
-    : []
-  const teamCount = teamMembers.length
+  // Load step and team members
+  useEffect(() => {
+    if (!locationId) return
+    Promise.all([
+      getLMProgress(locationId),
+      getProfilesByLocation(locationId),
+    ]).then(([currentStep, profiles]) => {
+      setStep(currentStep)
+      setTeamMembers(profiles.filter((p: Profile) => p.role === 'fe'))
+      setStepLoaded(true)
+    })
+  }, [locationId])
 
-  if (step === 'complete') return null
+  if (!stepLoaded || step === 'complete') return null
 
   const config = STEP_CONFIG[step]
   const Icon = config.icon
 
-  function handleSkip() {
-    const next = advanceLMProgress()
+  async function handleSkip() {
+    if (!locationId) return
+    const next = await advanceLMProgress(locationId)
     setStep(next)
     onAdvance?.()
   }
@@ -116,7 +126,7 @@ export function NextStepCard({ onAdvance, locationId, isDemoMode }: NextStepCard
                   <p className="text-[12px] text-[#6a6a6a]">In the demo, team members are pre-configured. In a real location, your team joins via this link.</p>
                 ) : (
                   <>
-                    <p className="text-[12px] text-[#6a6a6a] font-medium">0 team members joined</p>
+                    <p className="text-[12px] text-[#6a6a6a] font-medium">{teamMembers.length} team member{teamMembers.length !== 1 ? 's' : ''} joined</p>
                     <p className="text-[11px] text-[#6a6a6a] mt-1">Once your first team member joins, we&apos;ll help you assign tasks so your Pulse starts filling with real data.</p>
                   </>
                 )}
@@ -142,7 +152,7 @@ export function NextStepCard({ onAdvance, locationId, isDemoMode }: NextStepCard
                   />
                   <button
                     onClick={async () => {
-                      if (!playbookTopic.trim()) return
+                      if (!playbookTopic.trim() || !locationId) return
                       setIsGenerating(true)
                       try {
                         const res = await fetch('/api/ai/content', {
@@ -151,7 +161,7 @@ export function NextStepCard({ onAdvance, locationId, isDemoMode }: NextStepCard
                           body: JSON.stringify({ topic: playbookTopic }),
                         })
                         if (res.ok) {
-                          const next = advanceLMProgress()
+                          const next = await advanceLMProgress(locationId)
                           setStep(next)
                           setPlaybookSuccess(true)
                           onAdvance?.()

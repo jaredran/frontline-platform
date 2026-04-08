@@ -1,10 +1,18 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { Sparkles } from 'lucide-react'
 import { getCreditsRemaining } from '@/lib/data/store'
 
 export function CreditDisplay() {
-  const remaining = getCreditsRemaining()
+  const [remaining, setRemaining] = useState<number | null>(null)
+
+  useEffect(() => {
+    getCreditsRemaining().then(setRemaining)
+  }, [])
+
+  if (remaining === null) return null
+
   const isLow = remaining < 10
   const isEmpty = remaining === 0
 

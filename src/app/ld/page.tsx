@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { getAllPlaybooks, getPlaybookCompletions, getAllLocations, getProfilesByLocation, getPulseMetrics } from '@/lib/data/store'
 import { AIBriefing } from '@/components/shared/ai-briefing'
@@ -13,7 +13,7 @@ import {
   ChevronUp,
   CheckCircle2,
 } from 'lucide-react'
-import type { Playbook, PlaybookContent } from '@/lib/types'
+import type { Playbook, PlaybookContent, Location, PlaybookCompletion, Profile } from '@/lib/types'
 
 const CARD_SHADOW = 'rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px'
 
@@ -25,10 +25,38 @@ export default function LDPage() {
   const [expandedPlaybook, setExpandedPlaybook] = useState<string | null>(null)
   const [showContent, setShowContent] = useState<string | null>(null)
 
-  if (!user) return null
+  // Async data
+  const [playbooks, setPlaybooks] = useState<Playbook[]>([])
+  const [locations, setLocations] = useState<Location[]>([])
+  const [allCompletions, setAllCompletions] = useState<PlaybookCompletion[]>([])
+  const [locationProfiles, setLocationProfiles] = useState<Record<string, Profile[]>>({})
+  const [dataLoaded, setDataLoaded] = useState(false)
 
-  const playbooks = getAllPlaybooks()
-  const locations = getAllLocations()
+  useEffect(() => {
+    async function load() {
+      const [pbs, locs, completions] = await Promise.all([
+        getAllPlaybooks(),
+        getAllLocations(),
+        getPlaybookCompletions(),
+      ])
+      setPlaybooks(pbs)
+      setLocations(locs)
+      setAllCompletions(completions)
+
+      // Load profiles per location
+      const profileEntries = await Promise.all(
+        locs.map(async (loc: Location) => {
+          const profiles = await getProfilesByLocation(loc.id)
+          return [loc.id, profiles] as [string, Profile[]]
+        })
+      )
+      setLocationProfiles(Object.fromEntries(profileEntries))
+      setDataLoaded(true)
+    }
+    load()
+  }, [])
+
+  if (!user) return null
 
   // Flagged playbooks: completion_rate < 70 or effectiveness_score < 75
   const flagged = useMemo(() => {
@@ -39,11 +67,11 @@ export default function LDPage() {
 
   // Build per-playbook location completions
   function getLocationBreakdown(pb: Playbook) {
-    const completions = getPlaybookCompletions(pb.id)
+    const completions = allCompletions.filter(c => c.playbook_id === pb.id)
     return locations.map(loc => {
-      const locProfiles = getProfilesByLocation(loc.id)
+      const locProfiles = locationProfiles[loc.id] ?? []
       const locCompletions = completions.filter(c =>
-        locProfiles.some(p => p.id === c.profile_id)
+        locProfiles.some((p: Profile) => p.id === c.profile_id)
       )
       const rate = locProfiles.length > 0
         ? Math.round((locCompletions.length / locProfiles.length) * 100)
@@ -121,6 +149,14 @@ export default function LDPage() {
     return `${pb.title}: ${issues.join(', ')}`
   })
 
+  if (!dataLoaded) {
+    return (
+      <div className="bg-white min-h-screen flex items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-[#ff385c]" />
+      </div>
+    )
+  }
+
   return (
     <div className="bg-white min-h-screen">
       <AIBriefing
@@ -134,11 +170,14 @@ export default function LDPage() {
           })),
           flaggedCount: flagged.length,
           flaggedPlaybooks: flagged.map(f => f.title),
-          locationMetrics: locations.map(loc => ({
-            name: loc.name,
-            qualityScore: getPulseMetrics(loc.id).find(m => m.metric_name === 'quality_score')?.actual,
-            customerSatisfaction: getPulseMetrics(loc.id).find(m => m.metric_name === 'customer_satisfaction')?.actual,
-          })),
+          locationMetrics: locations.map(loc => {
+            const locMetrics = loc.pulse_metrics ?? []
+            return {
+              name: loc.name,
+              qualityScore: locMetrics.find(m => m.metric_name === 'quality_score')?.actual,
+              customerSatisfaction: locMetrics.find(m => m.metric_name === 'customer_satisfaction')?.actual,
+            }
+          }),
         }}
       />
 

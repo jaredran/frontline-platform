@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Nunito_Sans } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { ClerkProvider } from '@clerk/nextjs'
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -26,10 +27,12 @@ export default function RootLayout({
       className={`${nunitoSans.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-white text-[#222222]" style={{ fontFamily: 'var(--font-nunito-sans), Circular, -apple-system, system-ui, Roboto, Helvetica Neue, sans-serif' }}>
-        <Providers>
-          {children}
-          <Toaster />
-        </Providers>
+        <ClerkProvider>
+          <Providers>
+            {children}
+            <Toaster />
+          </Providers>
+        </ClerkProvider>
       </body>
     </html>
   );

@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth-context'
 import { ROLE_NAV } from '@/lib/constants'
 import { LogOut } from 'lucide-react'
 import type { Role } from '@/lib/types'
+import { CreditDisplay } from './credit-display'
 
 export function RoleShell({
   role,
@@ -41,13 +42,16 @@ export function RoleShell({
             <p className="text-xs text-[#6a6a6a] font-medium">{user.full_name}</p>
           </div>
         </div>
-        <button
-          onClick={() => { logout(); router.push('/') }}
-          className="h-9 w-9 flex items-center justify-center rounded-full bg-[#f7f7f7] text-[#222222] hover:shadow-[rgba(0,0,0,0.08)_0px_4px_12px] transition-all"
-          title="Switch user"
-        >
-          <LogOut className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <CreditDisplay />
+          <button
+            onClick={() => { logout(); router.push('/') }}
+            className="h-9 w-9 flex items-center justify-center rounded-full bg-[#f7f7f7] text-[#222222] hover:shadow-[rgba(0,0,0,0.08)_0px_4px_12px] transition-all"
+            title="Switch user"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
       </header>
 
       {/* Main content */}

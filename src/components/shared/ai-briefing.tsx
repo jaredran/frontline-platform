@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Sparkles, Loader2, RefreshCw } from 'lucide-react'
+import { canAffordAction, consumeCredits } from '@/lib/data/store'
+import { UpgradePrompt } from './upgrade-prompt'
 
 interface AIBriefingProps {
   role: string
@@ -13,12 +15,20 @@ export function AIBriefing({ role, contextData, accentColor = '#ff385c' }: AIBri
   const [text, setText] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [showUpgrade, setShowUpgrade] = useState(false)
   const hasFetched = useRef(false)
 
   async function fetchBriefing() {
     setText('')
     setLoading(true)
     setError(false)
+
+    if (!canAffordAction('briefing')) {
+      setShowUpgrade(true)
+      setLoading(false)
+      return
+    }
+    consumeCredits('briefing')
 
     try {
       const res = await fetch('/api/ai/briefing', {
@@ -53,6 +63,14 @@ export function AIBriefing({ role, contextData, accentColor = '#ff385c' }: AIBri
     hasFetched.current = true
     fetchBriefing()
   }, [])
+
+  if (showUpgrade) {
+    return (
+      <div className="mx-5 mt-4">
+        <UpgradePrompt />
+      </div>
+    )
+  }
 
   if (error && !text) return null
 

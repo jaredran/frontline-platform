@@ -5,12 +5,15 @@ import {
   profiles, locations, shifts, shiftAssignments, tasks,
   playbooks, playbookCompletions, pulseMetrics, pulseDiagnoses,
   interventions, ORG, metricHistory, TASK_PLAYBOOK_MAP,
+  orgCredits, resultsFees, lmProgressState,
 } from './seed'
 import type {
   Profile, Location, Shift, Task, Playbook, PulseMetric,
   PulseDiagnosis, Intervention, PlaybookCompletion, ShiftAssignment, Role,
-  MetricTimeSeries, RelevantPlaybook,
+  MetricTimeSeries, RelevantPlaybook, AIActionType, OrgCredits, ResultsFee,
+  LMProgressStep,
 } from '../types'
+import { AI_CREDIT_COSTS } from '../types'
 
 // --- Profiles ---
 export function getProfile(id: string): Profile | undefined {
@@ -256,4 +259,83 @@ export function getRelevantPlaybook(taskCategory: string, profileId: string): Re
   const needsReinforcement = !completed || (score !== null && score < 80)
 
   return { playbook, score, completed, needsReinforcement }
+}
+
+// --- Credits ---
+export function getCredits(): OrgCredits {
+  return orgCredits
+}
+
+export function getCreditsRemaining(): number {
+  return orgCredits.credits_total - orgCredits.credits_used
+}
+
+export function canAffordAction(action: AIActionType): boolean {
+  const cost = AI_CREDIT_COSTS[action]
+  return cost === 0 || getCreditsRemaining() >= cost
+}
+
+export function consumeCredits(action: AIActionType): boolean {
+  const cost = AI_CREDIT_COSTS[action]
+  if (cost === 0) return true
+  if (getCreditsRemaining() < cost) return false
+  orgCredits.credits_used += cost
+  return true
+}
+
+// --- Results Fees ---
+export function getResultsFees(): ResultsFee[] {
+  return resultsFees
+}
+
+export function getResultsFeesForLocation(locationId: string): ResultsFee[] {
+  const locInterventionIds = interventions
+    .filter(i => i.location_id === locationId)
+    .map(i => i.id)
+  return resultsFees.filter(r => locInterventionIds.includes(r.intervention_id))
+}
+
+export function getTotalResultsFee(): number {
+  return resultsFees.reduce((sum, r) => sum + r.fee, 0)
+}
+
+// --- LM Progress ---
+let _lmProgress: LMProgressStep = lmProgressState
+
+export function getLMProgress(): LMProgressStep {
+  return _lmProgress
+}
+
+export function setLMProgress(step: LMProgressStep): void {
+  _lmProgress = step
+}
+
+export function advanceLMProgress(): LMProgressStep {
+  const progression: LMProgressStep[] = ['invite_team', 'create_playbook', 'review_pulse', 'take_action', 'track_results', 'complete']
+  const currentIdx = progression.indexOf(_lmProgress)
+  if (currentIdx < progression.length - 1) {
+    _lmProgress = progression[currentIdx + 1]
+  }
+  return _lmProgress
+}
+
+// --- Data Mutations (for onboarding) ---
+export function addLocation(loc: Location): void {
+  locations.push(loc)
+}
+
+export function addProfile(p: Profile): void {
+  profiles.push(p)
+}
+
+export function addShift(s: Shift): void {
+  shifts.push(s)
+}
+
+export function addTask(t: Task): void {
+  tasks.push(t)
+}
+
+export function addPulseMetric(pm: PulseMetric): void {
+  pulseMetrics.push(pm)
 }

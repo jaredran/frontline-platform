@@ -242,6 +242,58 @@ export interface AIContext {
   page: string
 }
 
+// --- CREDITS ---
+export type PlanTier = 'free' | 'location_pro' | 'multi_location' | 'enterprise'
+
+export interface OrgCredits {
+  org_id: string
+  plan: PlanTier
+  credits_total: number
+  credits_used: number
+  credits_reset_at: string
+}
+
+export type AIActionType = 'briefing' | 'diagnosis' | 'action_plan' | 'playbook_generation' | 'content_revision' | 'task_help' | 'ask' | 'setup'
+
+export const AI_CREDIT_COSTS: Record<AIActionType, number> = {
+  briefing: 1,
+  diagnosis: 2,
+  action_plan: 3,
+  playbook_generation: 3,
+  content_revision: 2,
+  task_help: 0,
+  ask: 1,
+  setup: 0, // free — it's the hook
+}
+
+// --- RESULTS FEE ---
+export interface ResultsFee {
+  intervention_id: string
+  metric_name: string
+  improvement_points: number
+  rate_per_point: number
+  fee: number
+  estimated_value: number
+}
+
+// --- LM PROGRESS ---
+export type LMProgressStep = 'invite_team' | 'create_playbook' | 'review_pulse' | 'take_action' | 'track_results' | 'complete'
+
+// --- ONBOARDING (landing page hero) ---
+export interface GeneratedLocationSetup {
+  location_name: string
+  industry: string
+  employee_count: number
+  hours: string
+  diagnosis: {
+    root_causes: { cause: string; reasoning: string; confidence: string }[]
+    estimated_pulse: { metric_name: string; estimated_value: number; target: number; status: string }[]
+    recommended_actions: { action: string; expected_impact: string; timeline: string }[]
+  }
+  task_templates: { title: string; category: string; description: string; priority: TaskPriority }[]
+  playbook_topics: string[]
+}
+
 // --- PULSE METRIC NAMES ---
 export const PULSE_METRICS = {
   task_completion_rate: { label: 'Task Completion', unit: '%', format: 'percent' },

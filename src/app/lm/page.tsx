@@ -2,10 +2,12 @@
 
 import { useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
-import { getPulseMetrics, getLocation, getProfilesByLocation, getShiftsByLocation, getPlaybookCompletions } from '@/lib/data/store'
+import { getPulseMetrics, getLocation, getProfilesByLocation, getShiftsByLocation, getPlaybookCompletions, getResultsFeesForLocation, getInterventionTimeline, getTotalResultsFee } from '@/lib/data/store'
 import { AIBriefing } from '@/components/shared/ai-briefing'
 import { PulseGrid } from '@/components/shared/pulse-card'
 import { InlineAI } from '@/components/shared/inline-ai'
+import { NextStepCard } from '@/components/shared/next-step-card'
+import { AttributionChart } from '@/components/shared/attribution-chart'
 
 import { Loader2, Sparkles, TrendingUp, X, Check } from 'lucide-react'
 import { PULSE_METRICS } from '@/lib/types'
@@ -21,6 +23,7 @@ const IMPACT_BG: Record<string, string> = {
 
 export default function PulseDashboard() {
   const { user } = useAuth()
+  const [, forceUpdate] = useState(0)
   const [selectedMetric, setSelectedMetric] = useState<PulseMetric | null>(null)
   const [diagnosisText, setDiagnosisText] = useState('')
   const [diagnosisActions, setDiagnosisActions] = useState<RecommendedAction[]>([])
@@ -149,6 +152,7 @@ export default function PulseDashboard() {
           }}
           accentColor="#ff385c"
         />
+        <NextStepCard onAdvance={() => forceUpdate(n => n + 1)} />
         {/* Location header */}
         <div className="px-5 py-4 border-b border-[#ebebeb]">
           <h1
@@ -330,6 +334,52 @@ export default function PulseDashboard() {
             />
           </div>
         )}
+
+        {/* Results & Impact */}
+        {(() => {
+          const resultsFees = getResultsFeesForLocation(locationId)
+          const timeline = getInterventionTimeline(locationId)
+          const totalFee = getTotalResultsFee()
+          if (resultsFees.length === 0) return null
+          return (
+            <div className="mx-5 mt-4 bg-[#f7f7f7] rounded-[20px] px-5 py-4" style={{ boxShadow: cardShadow }}>
+              <div className="flex items-center gap-2 mb-3">
+                <TrendingUp className="h-4 w-4 text-[#ff385c]" />
+                <h2 className="text-[15px] font-bold text-[#222222]">Results &amp; Impact</h2>
+              </div>
+              <div className="space-y-4">
+                {timeline.map(({ intervention, metricHistories }) => {
+                  const fee = resultsFees.find(r => r.intervention_id === intervention.id)
+                  if (!fee) return null
+                  const metricMeta = PULSE_METRICS[fee.metric_name as keyof typeof PULSE_METRICS]
+                  const ts = metricHistories[fee.metric_name]
+                  return (
+                    <div key={intervention.id} className="bg-white rounded-[14px] p-4" style={{ boxShadow: cardShadow }}>
+                      <p className="text-[13px] font-semibold text-[#222222]">{intervention.description}</p>
+                      {ts && metricMeta && (
+                        <AttributionChart
+                          timeSeries={ts}
+                          interventionDate={intervention.started_at}
+                          metricLabel={metricMeta.label}
+                          unit={metricMeta.unit}
+                        />
+                      )}
+                      <p className="text-[12px] text-[#6a6a6a] mt-2">
+                        {metricMeta?.label ?? fee.metric_name} +{fee.improvement_points} points{' '}
+                        <span className="mx-1">&rarr;</span> Est. value: ${fee.estimated_value.toLocaleString()}/month{' '}
+                        <span className="mx-1">&rarr;</span> Results fee: <span className="font-semibold text-[#222222]">${fee.fee.toLocaleString()}/month</span>
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="mt-3 pt-3 border-t border-[#ebebeb] text-right">
+                <span className="text-[13px] text-[#6a6a6a]">Your total results fee this month: </span>
+                <span className="text-[15px] font-bold text-[#222222]">${totalFee.toLocaleString()}</span>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Team strip */}
         <div className="border-t border-[#ebebeb] px-5 py-3 mt-4">

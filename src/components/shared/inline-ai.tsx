@@ -2,25 +2,41 @@
 
 import { useState, useRef } from 'react'
 import { Send, Loader2 } from 'lucide-react'
+import { canAffordAction, consumeCredits } from '@/lib/data/store'
+import { UpgradePrompt } from './upgrade-prompt'
+import type { AIActionType } from '@/lib/types'
 
 interface InlineAIProps {
   placeholder: string
   endpoint: string
   buildPayload: (message: string) => Record<string, unknown>
   compact?: boolean
+  actionType?: AIActionType
+  checkCredits?: boolean
 }
 
-export function InlineAI({ placeholder, endpoint, buildPayload, compact = false }: InlineAIProps) {
+export function InlineAI({ placeholder, endpoint, buildPayload, compact = false, actionType = 'ask', checkCredits = true }: InlineAIProps) {
   const [input, setInput] = useState('')
   const [response, setResponse] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showUpgrade, setShowUpgrade] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   async function handleSend() {
     if (!input.trim() || loading) return
+
+    if (checkCredits && actionType && !canAffordAction(actionType)) {
+      setShowUpgrade(true)
+      return
+    }
+    if (checkCredits && actionType) {
+      consumeCredits(actionType)
+    }
+
     const msg = input.trim()
     setInput('')
     setResponse('')
+    setShowUpgrade(false)
     setLoading(true)
 
     try {
@@ -72,7 +88,8 @@ export function InlineAI({ placeholder, endpoint, buildPayload, compact = false 
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
         </button>
       </div>
-      {(response || loading) && (
+      {showUpgrade && <UpgradePrompt />}
+      {!showUpgrade && (response || loading) && (
         <div className="text-sm text-[#222222] leading-relaxed whitespace-pre-wrap bg-[#f7f7f7] rounded-[20px] px-4 py-3" style={{ boxShadow: 'var(--airbnb-shadow-card)' }}>
           {response || (
             <span className="text-[#6a6a6a] flex items-center gap-2">

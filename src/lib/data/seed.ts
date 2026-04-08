@@ -12,6 +12,9 @@ import {
   PlaybookContent,
   Role,
   MetricTimeSeries,
+  OrgCredits,
+  ResultsFee,
+  LMProgressStep,
 } from '../types'
 
 // =============================================
@@ -747,3 +750,49 @@ export const metricHistory: MetricTimeSeries[] = [
   series('loc-airport', 'schedule_adherence',    [82, 80, 79, 78, 77, 76, 76, 76, 76]),
   series('loc-airport', 'compliance_rate',       [85, 83, 82, 80, 79, 78, 79, 81, 82]),
 ]
+
+// =============================================
+// CREDITS
+// =============================================
+export let orgCredits: OrgCredits = {
+  org_id: ORG.id,
+  plan: 'free',
+  credits_total: 50,
+  credits_used: 8,
+  credits_reset_at: '2026-05-01T00:00:00Z',
+}
+
+// =============================================
+// RESULTS FEES (computed from interventions)
+// =============================================
+export const resultsFees: ResultsFee[] = [
+  {
+    intervention_id: 'int-1',
+    metric_name: 'quality_score',
+    improvement_points: 4,
+    rate_per_point: 30,
+    fee: 120,
+    estimated_value: 1200,
+  },
+  {
+    intervention_id: 'int-1',
+    metric_name: 'compliance_rate',
+    improvement_points: 4,
+    rate_per_point: 40,
+    fee: 160,
+    estimated_value: 1600,
+  },
+  {
+    intervention_id: 'int-2',
+    metric_name: 'task_completion_rate',
+    improvement_points: 4,
+    rate_per_point: 25,
+    fee: 100,
+    estimated_value: 1000,
+  },
+]
+
+// =============================================
+// LM PROGRESS STATE
+// =============================================
+export let lmProgressState: LMProgressStep = 'invite_team'

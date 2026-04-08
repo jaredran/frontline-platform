@@ -614,7 +614,7 @@ export async function createInviteLink(locationId: string, createdBy?: string): 
     .eq('location_id', locationId)
     .gt('expires_at', new Date().toISOString())
     .limit(1)
-    .single()
+    .maybeSingle()
   if (existing?.code) return { code: existing.code }
 
   // Create new link
@@ -637,7 +637,7 @@ export async function getInviteLink(code: string): Promise<{ locationId: string;
     .select('location_id')
     .eq('code', code)
     .gt('expires_at', new Date().toISOString())
-    .single()
+    .maybeSingle()
   if (!data) return null
 
   const loc = await getLocation(data.location_id)

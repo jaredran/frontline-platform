@@ -2,7 +2,8 @@
 
 import { useState, useMemo } from 'react'
 import { useAuth } from '@/lib/auth-context'
-import { getAllPlaybooks, getPlaybookCompletions, getAllLocations, getProfilesByLocation } from '@/lib/data/store'
+import { getAllPlaybooks, getPlaybookCompletions, getAllLocations, getProfilesByLocation, getPulseMetrics } from '@/lib/data/store'
+import { AIBriefing } from '@/components/shared/ai-briefing'
 import { InlineAI } from '@/components/shared/inline-ai'
 import {
   AlertTriangle,
@@ -122,6 +123,25 @@ export default function LDPage() {
 
   return (
     <div className="bg-white min-h-screen">
+      <AIBriefing
+        role="ld"
+        contextData={{
+          playbooks: playbooks.map(pb => ({
+            title: pb.title,
+            completionRate: pb.completion_rate,
+            effectivenessScore: pb.effectiveness_score,
+            status: pb.status,
+          })),
+          flaggedCount: flagged.length,
+          flaggedPlaybooks: flagged.map(f => f.title),
+          locationMetrics: locations.map(loc => ({
+            name: loc.name,
+            qualityScore: getPulseMetrics(loc.id).find(m => m.metric_name === 'quality_score')?.actual,
+            customerSatisfaction: getPulseMetrics(loc.id).find(m => m.metric_name === 'customer_satisfaction')?.actual,
+          })),
+        }}
+      />
+
       {/* Attention banner */}
       {flagged.length > 0 && (
         <div className="mx-5 mt-4 rounded-[20px] bg-[#fff8f6] border-l-4 border-[#c13515] px-5 py-4">

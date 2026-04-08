@@ -208,6 +208,26 @@ export interface Intervention {
   location?: Location
 }
 
+// --- METRIC HISTORY (Attribution) ---
+export interface MetricHistoryPoint {
+  date: string
+  value: number
+}
+
+export interface MetricTimeSeries {
+  locationId: string
+  metricName: string
+  points: MetricHistoryPoint[]
+}
+
+// --- KNOWLEDGE SURFACING ---
+export interface RelevantPlaybook {
+  playbook: Playbook
+  score: number | null
+  completed: boolean
+  needsReinforcement: boolean
+}
+
 // --- AI ---
 export interface AIMessage {
   role: 'user' | 'assistant'

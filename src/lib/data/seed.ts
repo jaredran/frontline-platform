@@ -11,6 +11,7 @@ import {
   PlaybookCompletion,
   PlaybookContent,
   Role,
+  MetricTimeSeries,
 } from '../types'
 
 // =============================================
@@ -699,4 +700,50 @@ export const DEMO_USERS = [
   { id: 'user-mgr-downtown', name: 'Elena Rodriguez', role: 'lm' as Role, location: 'Downtown', description: 'Location Manager' },
   { id: 'user-ld', name: 'Sarah Chen', role: 'ld' as Role, location: 'All locations', description: 'L&D Executive' },
   { id: 'user-ops', name: 'Marcus Johnson', role: 'ops' as Role, location: 'All locations', description: 'Operations Executive' },
+]
+
+// =============================================
+// TASK → PLAYBOOK MAPPING (Knowledge Surfacing)
+// =============================================
+export const TASK_PLAYBOOK_MAP: Record<string, string> = {
+  'Food Prep': 'pb-food-safety',
+  'Food Safety': 'pb-food-safety',
+  'Cleaning': 'pb-food-safety',
+  'Service': 'pb-customer-service',
+}
+
+// =============================================
+// METRIC HISTORY (Attribution Timeline)
+// 8 weekly points per series: Feb 9 → Apr 6 2026
+// =============================================
+const WEEKS = ['2026-02-09', '2026-02-16', '2026-02-23', '2026-03-02', '2026-03-09', '2026-03-16', '2026-03-23', '2026-03-30', '2026-04-06']
+
+function series(locId: string, metric: string, values: number[]): MetricTimeSeries {
+  return { locationId: locId, metricName: metric, points: values.map((v, i) => ({ date: WEEKS[i], value: v })) }
+}
+
+export const metricHistory: MetricTimeSeries[] = [
+  // --- DOWNTOWN (steady high, control group) ---
+  series('loc-downtown', 'task_completion_rate', [91, 92, 93, 92, 93, 93, 94, 94, 94]),
+  series('loc-downtown', 'labor_cost_percent',   [29, 29, 28, 29, 28, 28, 28, 28, 28]),
+  series('loc-downtown', 'customer_satisfaction', [4.3, 4.3, 4.4, 4.4, 4.5, 4.5, 4.5, 4.6, 4.6]),
+  series('loc-downtown', 'quality_score',         [89, 90, 91, 90, 91, 91, 92, 92, 92]),
+  series('loc-downtown', 'schedule_adherence',    [94, 95, 95, 95, 96, 96, 96, 96, 96]),
+  series('loc-downtown', 'compliance_rate',       [97, 97, 98, 97, 98, 98, 98, 98, 98]),
+
+  // --- MALL (flat, then improving after Mar 15 huddle intervention) ---
+  series('loc-mall', 'task_completion_rate', [78, 77, 79, 78, 78, 80, 82, 83, 84]),
+  series('loc-mall', 'labor_cost_percent',   [35, 35, 34, 35, 34, 34, 33, 33, 33]),
+  series('loc-mall', 'customer_satisfaction', [3.9, 3.9, 4.0, 4.0, 4.0, 4.0, 4.1, 4.1, 4.1]),
+  series('loc-mall', 'quality_score',         [78, 77, 79, 78, 79, 80, 80, 81, 81]),
+  series('loc-mall', 'schedule_adherence',    [85, 86, 85, 86, 86, 87, 87, 88, 88]),
+  series('loc-mall', 'compliance_rate',       [88, 89, 89, 88, 89, 90, 90, 91, 91]),
+
+  // --- AIRPORT (declining, then improving after Mar 25 food safety training) ---
+  series('loc-airport', 'task_completion_rate', [79, 77, 75, 74, 72, 71, 70, 71, 72]),
+  series('loc-airport', 'labor_cost_percent',   [34, 35, 36, 36, 37, 37, 38, 38, 38]),
+  series('loc-airport', 'customer_satisfaction', [3.8, 3.7, 3.6, 3.5, 3.5, 3.4, 3.4, 3.4, 3.4]),
+  series('loc-airport', 'quality_score',         [63, 61, 60, 62, 59, 61, 63, 66, 68]),
+  series('loc-airport', 'schedule_adherence',    [82, 80, 79, 78, 77, 76, 76, 76, 76]),
+  series('loc-airport', 'compliance_rate',       [85, 83, 82, 80, 79, 78, 79, 81, 82]),
 ]

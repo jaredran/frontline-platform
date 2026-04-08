@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
-import { getPulseMetrics, getLocation, getProfilesByLocation, getShiftsByLocation } from '@/lib/data/store'
+import { getPulseMetrics, getLocation, getProfilesByLocation, getShiftsByLocation, getPlaybookCompletions } from '@/lib/data/store'
+import { AIBriefing } from '@/components/shared/ai-briefing'
 import { PulseGrid } from '@/components/shared/pulse-card'
 import { InlineAI } from '@/components/shared/inline-ai'
 
@@ -129,6 +130,25 @@ export default function PulseDashboard() {
 
   return (
     <div className="bg-white min-h-full">
+        <AIBriefing
+          role="lm"
+          contextData={{
+            locationName: location?.name,
+            metrics: metrics.map(m => {
+              const meta = PULSE_METRICS[m.metric_name as keyof typeof PULSE_METRICS]
+              return { name: meta?.label, actual: m.actual, target: m.target, trend: m.trend }
+            }),
+            teamSize: locationProfiles.length,
+            onShiftCount: onShiftProfiles.length,
+            avgQuality,
+            trainingGaps: locationProfiles.map(p => {
+              const completions = getPlaybookCompletions(undefined, p.id)
+              const completedIds = completions.map(c => c.playbook_id)
+              return { name: p.full_name, missingPlaybooks: ['pb-food-safety', 'pb-customer-service'].filter(id => !completedIds.includes(id)).length, avgScore: completions.length > 0 ? Math.round(completions.reduce((s, c) => s + c.score, 0) / completions.length) : null }
+            }).filter(g => g.missingPlaybooks > 0 || (g.avgScore !== null && g.avgScore < 80)),
+          }}
+          accentColor="#ff385c"
+        />
         {/* Location header */}
         <div className="px-5 py-4 border-b border-[#ebebeb]">
           <h1

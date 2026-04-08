@@ -2,10 +2,11 @@
 
 import { useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
-import { getShiftsForEmployee, updateTaskStatus, getProfile } from '@/lib/data/store'
+import { getShiftsForEmployee, updateTaskStatus, getProfile, getPlaybookCompletions, getRelevantPlaybook } from '@/lib/data/store'
+import { AIBriefing } from '@/components/shared/ai-briefing'
 import { InlineAI } from '@/components/shared/inline-ai'
 
-import { Loader2, FileText } from 'lucide-react'
+import { Loader2, FileText, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import type { Task, TaskStatus } from '@/lib/types'
 
 const STATUS_DOT: Record<TaskStatus, string> = {
@@ -24,6 +25,7 @@ export default function MyShiftPage() {
   const [, setTick] = useState(0)
   const [handoffText, setHandoffText] = useState('')
   const [handoffLoading, setHandoffLoading] = useState(false)
+  const [dismissedKnowledge, setDismissedKnowledge] = useState<Set<string>>(new Set())
 
   if (!user) return null
 
@@ -98,6 +100,17 @@ export default function MyShiftPage() {
 
   return (
     <div className="bg-white min-h-full">
+        <AIBriefing
+          role="fe"
+          contextData={{
+            employeeName: profile?.full_name,
+            locationName: currentShift?.location?.name,
+            todaysTasks: tasks.map(t => ({ title: t.title, category: t.category, status: t.status, qualityScore: t.quality_score })),
+            skills: profile?.skills,
+            playbookGaps: getPlaybookCompletions(undefined, user.id).filter(c => c.score < 80).map(c => ({ playbook: c.playbook?.title, score: c.score })),
+          }}
+          accentColor="#ff385c"
+        />
         {/* Shift header */}
         <div className="px-5 py-4 flex items-center justify-between">
           <div>
@@ -169,6 +182,46 @@ export default function MyShiftPage() {
                       className="bg-[#f7f7f7] rounded-[20px] mx-5 my-2 p-5 space-y-4"
                       style={{ boxShadow: cardShadow }}
                     >
+                      {(() => {
+                        const relevant = getRelevantPlaybook(task.category, user.id)
+                        if (!relevant) return null
+                        if (relevant.needsReinforcement && !dismissedKnowledge.has(task.id)) {
+                          return (
+                            <div className="mb-4 bg-[#fff8e1] border border-[#ffe082] rounded-[14px] p-4">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <AlertTriangle className="h-4 w-4 text-[#c13515]" />
+                                  <span className="text-[13px] font-semibold text-[#222222]">Key procedure for this task</span>
+                                </div>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setDismissedKnowledge(prev => new Set(prev).add(task.id)) }}
+                                  className="text-[11px] text-[#6a6a6a] hover:text-[#222222] font-medium"
+                                >
+                                  Hide
+                                </button>
+                              </div>
+                              {relevant.playbook.content.steps.map((step, i) => (
+                                <div key={i} className="mb-2 last:mb-0">
+                                  <p className="text-[13px] font-semibold text-[#222222]">{i + 1}. {step.title}</p>
+                                  <p className="text-[12px] text-[#6a6a6a] mt-0.5">{step.instructions}</p>
+                                </div>
+                              ))}
+                              {relevant.score !== null && (
+                                <p className="text-[12px] text-[#c13515] font-medium mt-2">Your score: {relevant.score}% — practice makes perfect!</p>
+                              )}
+                            </div>
+                          )
+                        }
+                        if (!relevant.needsReinforcement) {
+                          return (
+                            <div className="mb-3 flex items-center gap-2 bg-[#e8f5e9] rounded-[14px] px-3 py-2">
+                              <CheckCircle2 className="h-4 w-4 text-[#008a05]" />
+                              <span className="text-[13px] font-medium text-[#008a05]">You've mastered this — score: {relevant.score}%</span>
+                            </div>
+                          )
+                        }
+                        return null
+                      })()}
                       {task.description && (
                         <p className="text-sm text-[#222222] leading-relaxed">
                           {task.description}

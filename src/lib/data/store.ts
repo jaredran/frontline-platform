@@ -4,11 +4,12 @@
 import {
   profiles, locations, shifts, shiftAssignments, tasks,
   playbooks, playbookCompletions, pulseMetrics, pulseDiagnoses,
-  interventions, ORG,
+  interventions, ORG, metricHistory, TASK_PLAYBOOK_MAP,
 } from './seed'
 import type {
   Profile, Location, Shift, Task, Playbook, PulseMetric,
   PulseDiagnosis, Intervention, PlaybookCompletion, ShiftAssignment, Role,
+  MetricTimeSeries, RelevantPlaybook,
 } from '../types'
 
 // --- Profiles ---
@@ -214,4 +215,45 @@ export function getOrgSummary() {
     totalLocations: locations.length,
     interventions: getAllInterventions(),
   }
+}
+
+// --- Metric History (Attribution) ---
+export function getMetricHistory(locationId: string, metricName: string): MetricTimeSeries | undefined {
+  return metricHistory.find(mh => mh.locationId === locationId && mh.metricName === metricName)
+}
+
+export function getInterventionTimeline(locationId: string) {
+  const locInterventions = interventions.filter(
+    i => i.location_id === locationId || i.location_id === null
+  )
+  return locInterventions.map(intervention => {
+    const metricKeys = Object.keys(intervention.metrics_before || {})
+    const metricHistories: Record<string, MetricTimeSeries | undefined> = {}
+    for (const key of metricKeys) {
+      metricHistories[key] = getMetricHistory(
+        intervention.location_id || locationId,
+        key
+      )
+    }
+    return { intervention, metricHistories }
+  })
+}
+
+// --- Knowledge Surfacing ---
+export function getRelevantPlaybook(taskCategory: string, profileId: string): RelevantPlaybook | null {
+  const playbookId = TASK_PLAYBOOK_MAP[taskCategory]
+  if (!playbookId) return null
+
+  const playbook = playbooks.find(p => p.id === playbookId)
+  if (!playbook) return null
+
+  const completion = playbookCompletions.find(
+    pc => pc.playbook_id === playbookId && pc.profile_id === profileId
+  )
+
+  const completed = !!completion
+  const score = completion?.score ?? null
+  const needsReinforcement = !completed || (score !== null && score < 80)
+
+  return { playbook, score, completed, needsReinforcement }
 }

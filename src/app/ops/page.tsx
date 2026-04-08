@@ -8,7 +8,10 @@ import {
   getProfilesByLocation,
   getAllInterventions,
   getAllPulseMetrics,
+  getInterventionTimeline,
 } from '@/lib/data/store'
+import { AIBriefing } from '@/components/shared/ai-briefing'
+import { AttributionChart } from '@/components/shared/attribution-chart'
 import { PulseGrid } from '@/components/shared/pulse-card'
 import { InlineAI } from '@/components/shared/inline-ai'
 import {
@@ -18,7 +21,7 @@ import {
   TrendingDown,
   Minus,
 } from 'lucide-react'
-import { PULSE_METRICS, type PulseMetric, type Intervention } from '@/lib/types'
+import { PULSE_METRICS, type PulseMetric, type Intervention, type MetricTimeSeries } from '@/lib/types'
 
 const CARD_SHADOW = 'rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px'
 
@@ -138,15 +141,27 @@ export default function OpsPage() {
 
   return (
     <div className="bg-white min-h-screen">
-      {/* AI insight banner */}
-      {aiInsight && (
-        <div
-          className="mx-5 mt-4 rounded-[20px] bg-[#f7f7f7] border-l-4 border-[#ff385c] px-5 py-4"
-          style={{ boxShadow: CARD_SHADOW }}
-        >
-          <p className="text-[15px] font-medium text-[#222222]">{aiInsight}</p>
-        </div>
-      )}
+      {/* AI briefing */}
+      <AIBriefing
+        role="ops"
+        contextData={{
+          locations: locationData.map(ld => ({
+            name: ld.location.name,
+            healthScore: ld.health,
+            offTargetCount: ld.dots.offTarget,
+            metrics: ld.metrics.map(m => ({ name: PULSE_METRICS[m.metric_name as keyof typeof PULSE_METRICS]?.label, actual: m.actual, target: m.target })),
+          })),
+          interventions: allInterventions.map(i => ({
+            type: i.type,
+            description: i.description,
+            locationName: locations.find(l => l.id === i.location_id)?.name || 'Org-wide',
+            metricsBefore: i.metrics_before,
+            metricsAfter: i.metrics_after,
+            startedAt: i.started_at,
+          })),
+          orgAverages: { taskCompletion: orgAvg.taskCompletion, quality: orgAvg.qualityScore, compliance: orgAvg.complianceRate },
+        }}
+      />
 
       {/* Location feed */}
       <div className="mt-4">
@@ -239,47 +254,72 @@ export default function OpsPage() {
                       <p className="text-[13px] text-[#6a6a6a]">No active interventions at this location</p>
                     ) : (
                       <div className="space-y-2">
-                        {interventions.map(iv => {
-                          const ivStatus = getInterventionStatus(iv)
-                          const typeColor = TYPE_BADGE_COLORS[iv.type] || 'bg-[#f7f7f7] text-[#6a6a6a]'
+                        {(() => {
+                          const timeline = getInterventionTimeline(location.id)
+                          return interventions.map(iv => {
+                            const ivStatus = getInterventionStatus(iv)
+                            const typeColor = TYPE_BADGE_COLORS[iv.type] || 'bg-[#f7f7f7] text-[#6a6a6a]'
 
-                          // Attribution: before -> after
-                          const beforeKeys = iv.metrics_before ? Object.keys(iv.metrics_before) : []
-                          const hasBefore = beforeKeys.length > 0 && iv.metrics_after
+                            // Attribution: before -> after
+                            const beforeKeys = iv.metrics_before ? Object.keys(iv.metrics_before) : []
+                            const hasBefore = beforeKeys.length > 0 && iv.metrics_after
 
-                          return (
-                            <div key={iv.id} className="bg-white rounded-[14px] p-4" style={{ boxShadow: CARD_SHADOW }}>
-                              <div className="flex items-center gap-2">
-                                <span className={`text-[11px] font-semibold uppercase px-3 py-1 rounded-full ${typeColor}`}>
-                                  {iv.type}
-                                </span>
-                                <span className={`text-[11px] font-semibold ${ivStatus.color}`}>
-                                  {ivStatus.label}
-                                </span>
-                              </div>
-                              <p className="text-[13px] text-[#222222] mt-2">{iv.description}</p>
-                              {hasBefore && iv.metrics_before && iv.metrics_after && (
-                                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-                                  {beforeKeys.map(key => {
-                                    const before = iv.metrics_before![key]
-                                    const after = iv.metrics_after![key]
-                                    const delta = after - before
-                                    const metaKey = key as keyof typeof PULSE_METRICS
-                                    const label = PULSE_METRICS[metaKey]?.label ?? key
-                                    return (
-                                      <span key={key} className="text-[11px] text-[#6a6a6a]">
-                                        {label}: {Math.round(before)} &rarr; {Math.round(after)}{' '}
-                                        <span className={delta >= 0 ? 'text-[#008a05] font-semibold' : 'text-[#c13515] font-semibold'}>
-                                          {delta >= 0 ? '+' : ''}{Math.round(delta)}
-                                        </span>
-                                      </span>
-                                    )
-                                  })}
+                            // Find matching timeline entry for this intervention
+                            const timelineEntry = timeline.find(t => t.intervention.id === iv.id)
+
+                            return (
+                              <div key={iv.id} className="bg-white rounded-[14px] p-4" style={{ boxShadow: CARD_SHADOW }}>
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[11px] font-semibold uppercase px-3 py-1 rounded-full ${typeColor}`}>
+                                    {iv.type}
+                                  </span>
+                                  <span className={`text-[11px] font-semibold ${ivStatus.color}`}>
+                                    {ivStatus.label}
+                                  </span>
                                 </div>
-                              )}
-                            </div>
-                          )
-                        })}
+                                <p className="text-[13px] text-[#222222] mt-2">{iv.description}</p>
+                                {hasBefore && iv.metrics_before && iv.metrics_after && (
+                                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                                    {beforeKeys.map(key => {
+                                      const before = iv.metrics_before![key]
+                                      const after = iv.metrics_after![key]
+                                      const delta = after - before
+                                      const metaKey = key as keyof typeof PULSE_METRICS
+                                      const label = PULSE_METRICS[metaKey]?.label ?? key
+                                      return (
+                                        <span key={key} className="text-[11px] text-[#6a6a6a]">
+                                          {label}: {Math.round(before)} &rarr; {Math.round(after)}{' '}
+                                          <span className={delta >= 0 ? 'text-[#008a05] font-semibold' : 'text-[#c13515] font-semibold'}>
+                                            {delta >= 0 ? '+' : ''}{Math.round(delta)}
+                                          </span>
+                                        </span>
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                                {/* Attribution charts for metrics with time series data */}
+                                {hasBefore && timelineEntry && (
+                                  <div className="mt-3 space-y-3">
+                                    {beforeKeys.map(key => {
+                                      const metaKey = key as keyof typeof PULSE_METRICS
+                                      const timeSeries = timelineEntry.metricHistories[key]
+                                      if (!timeSeries) return null
+                                      return (
+                                        <AttributionChart
+                                          key={key}
+                                          timeSeries={timeSeries}
+                                          interventionDate={iv.started_at}
+                                          metricLabel={PULSE_METRICS[metaKey]?.label || key}
+                                          unit={key === 'customer_satisfaction' ? '' : '%'}
+                                        />
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })
+                        })()}
                       </div>
                     )}
                   </div>

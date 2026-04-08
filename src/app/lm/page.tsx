@@ -9,7 +9,7 @@ import { InlineAI } from '@/components/shared/inline-ai'
 import { NextStepCard } from '@/components/shared/next-step-card'
 import { AttributionChart } from '@/components/shared/attribution-chart'
 
-import { Loader2, Sparkles, TrendingUp, X, Check } from 'lucide-react'
+import { Loader2, Sparkles, TrendingUp, X, Check, Info } from 'lucide-react'
 import { PULSE_METRICS } from '@/lib/types'
 import type { PulseMetric, RecommendedAction } from '@/lib/types'
 
@@ -96,6 +96,7 @@ export default function PulseDashboard() {
           target: selectedMetric.target,
           trend: selectedMetric.trend,
           location_name: location?.name ?? 'this location',
+          location_id: locationId,
         }),
       })
 
@@ -113,19 +114,39 @@ export default function PulseDashboard() {
       }
 
       const decoder = new TextDecoder()
-      let fullText = ''
+      let accumulated = ''
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        fullText += decoder.decode(value, { stream: true })
-        setDiagnosisText(fullText)
+        accumulated += decoder.decode(value, { stream: true })
+        setDiagnosisText(accumulated)
       }
+
+      // After streaming is done, try to extract structured actions
+      try {
+        const jsonMatch = accumulated.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0])
+          if (parsed.diagnosis) setDiagnosisText(parsed.diagnosis)
+          if (parsed.recommended_actions) setDiagnosisActions(parsed.recommended_actions)
+          if (parsed.causes) {
+            // Prepend causes to diagnosis text
+            const causesText = parsed.causes.map((c: { cause: string; evidence: string }, i: number) =>
+              `${i + 1}. ${c.cause}\n   ${c.evidence}`
+            ).join('\n\n')
+            setDiagnosisText(parsed.diagnosis + '\n\n' + causesText)
+          }
+        }
+      } catch { /* Not JSON, that's fine — plain text is already set */ }
     } catch {
       setDiagnosisText('Unable to generate diagnosis. Please try again.')
     } finally {
       setIsDiagnosing(false)
     }
   }
+
+  const isEstimatedData = locationId.startsWith('loc-new-')
+  const isDemoData = !isEstimatedData && ['loc-downtown', 'loc-mall', 'loc-airport'].includes(locationId)
 
   const selectedMeta = selectedMetric
     ? PULSE_METRICS[selectedMetric.metric_name as keyof typeof PULSE_METRICS]
@@ -152,7 +173,7 @@ export default function PulseDashboard() {
           }}
           accentColor="#ff385c"
         />
-        <NextStepCard onAdvance={() => forceUpdate(n => n + 1)} />
+        <NextStepCard onAdvance={() => forceUpdate(n => n + 1)} locationId={locationId} />
         {/* Location header */}
         <div className="px-5 py-4 border-b border-[#ebebeb]">
           <h1
@@ -182,6 +203,30 @@ export default function PulseDashboard() {
             selectedId={selectedMetric?.id}
           />
         </div>
+
+        {/* Data source indicator */}
+        {isEstimatedData && (
+          <div className="bg-[#fff8e1] rounded-[14px] mx-5 mt-2 px-4 py-3 flex gap-3">
+            <Info className="h-4 w-4 text-[#b8860b] shrink-0 mt-0.5" />
+            <div>
+              <p className="text-[13px] text-[#222222] font-medium">These metrics are estimated based on your description. To get real data:</p>
+              <ul className="text-[13px] text-[#6a6a6a] mt-1.5 space-y-1 list-disc ml-4">
+                <li>Invite your team and assign tasks -- task completions update your Pulse automatically</li>
+                <li>Connect your POS system for sales and customer satisfaction data</li>
+                <li>Connect your scheduling system for schedule adherence data</li>
+              </ul>
+            </div>
+          </div>
+        )}
+        {isDemoData && (
+          <div className="bg-[#f0f4ff] rounded-[14px] mx-5 mt-2 px-4 py-3 flex gap-3">
+            <Info className="h-4 w-4 text-[#4a6fa5] shrink-0 mt-0.5" />
+            <p className="text-[13px] text-[#6a6a6a]">
+              You&apos;re viewing demo data for {location?.name ?? 'this location'}.{' '}
+              <a href="/" className="text-[#ff385c] underline font-medium">Sign up</a> to create your own location with real data.
+            </p>
+          </div>
+        )}
 
         {/* Diagnosis panel */}
         {selectedMetric && selectedMeta && (
@@ -239,9 +284,13 @@ export default function PulseDashboard() {
             {/* Diagnosis content */}
             {diagnosisText ? (
               <div>
-                <p className="text-sm text-[#222222] leading-relaxed whitespace-pre-wrap">
-                  {diagnosisText}
-                </p>
+                <div className="space-y-2">
+                  {diagnosisText.split('\n').filter(Boolean).map((line, i) => (
+                    <p key={i} className="text-sm text-[#222222] leading-relaxed">
+                      {line}
+                    </p>
+                  ))}
+                </div>
                 {isDiagnosing && (
                   <Loader2 className="h-3 w-3 text-[#6a6a6a] animate-spin mt-2" />
                 )}

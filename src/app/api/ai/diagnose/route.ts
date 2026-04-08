@@ -5,7 +5,7 @@ import { getPulseMetrics, getTasksByLocation, getProfilesByLocation, getPlaybook
 
 export async function POST(req: NextRequest) {
   try {
-    const { metricName, actual, target, locationId, locationName } = await req.json()
+    const { metric_name: metricName, actual, target, trend, location_name: locationName, location_id: locationId } = await req.json()
 
     // Gather context data
     const allMetrics = getPulseMetrics(locationId)
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
 
     const contextData = `
 Location: ${locationName} (${locationId})
-Metric Under Analysis: ${metricName} — Actual: ${actual}, Target: ${target}
+Metric Under Analysis: ${metricName} — Actual: ${actual}, Target: ${target}, Trend: ${trend}
 
 All Pulse Metrics:
 ${allMetrics.map(m => `- ${m.metric_name}: ${m.actual} / ${m.target} (trend: ${m.trend})`).join('\n')}

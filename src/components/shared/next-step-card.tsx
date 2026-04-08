@@ -1,12 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { Users, BookOpen, Activity, Zap, TrendingUp, ChevronDown, Copy, Check } from 'lucide-react'
-import { getLMProgress, advanceLMProgress } from '@/lib/data/store'
+import { Users, BookOpen, Activity, Zap, TrendingUp, ChevronDown, Copy, Check, Loader2 } from 'lucide-react'
+import { getLMProgress, advanceLMProgress, getProfilesByLocation } from '@/lib/data/store'
 import type { LMProgressStep } from '@/lib/types'
 
 interface NextStepCardProps {
   onAdvance?: () => void
+  locationId?: string | null
 }
 
 const cardShadow = 'rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px'
@@ -19,7 +20,7 @@ const STEP_CONFIG: Record<Exclude<LMProgressStep, 'complete'>, {
   invite_team: {
     icon: Users,
     headline: 'Your Pulse needs real data',
-    body: 'Invite your team so they can track tasks and generate performance data.',
+    body: 'Share this link with your team. When they join, you\u2019ll see them here and can assign tasks from your task templates.',
   },
   create_playbook: {
     icon: BookOpen,
@@ -43,9 +44,18 @@ const STEP_CONFIG: Record<Exclude<LMProgressStep, 'complete'>, {
   },
 }
 
-export function NextStepCard({ onAdvance }: NextStepCardProps) {
+export function NextStepCard({ onAdvance, locationId }: NextStepCardProps) {
   const [step, setStep] = useState<LMProgressStep>(getLMProgress())
   const [copied, setCopied] = useState(false)
+  const [playbookTopic, setPlaybookTopic] = useState('')
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [playbookSuccess, setPlaybookSuccess] = useState(false)
+
+  // Team members for invite_team step
+  const teamMembers = locationId
+    ? getProfilesByLocation(locationId).filter(p => p.role === 'fe')
+    : []
+  const teamCount = teamMembers.length
 
   if (step === 'complete') return null
 
@@ -86,33 +96,86 @@ export function NextStepCard({ onAdvance }: NextStepCardProps) {
 
           {/* Step-specific content */}
           {step === 'invite_team' && (
-            <div className="mt-3 flex items-center gap-2">
-              <div className="flex-1 bg-white border border-[#ebebeb] rounded-[8px] px-3 py-2 text-[12px] text-[#6a6a6a] font-mono truncate">
-                https://frontline.app/join/abc123
+            <div className="mt-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="flex-1 bg-white border border-[#ebebeb] rounded-[8px] px-3 py-2 text-[12px] text-[#6a6a6a] font-mono truncate">
+                  https://frontline.app/join/abc123
+                </div>
+                <button
+                  onClick={handleCopyLink}
+                  className="h-8 px-3 flex items-center gap-1.5 bg-[#222222] text-white rounded-[8px] text-[12px] font-medium hover:bg-[#ff385c] transition-colors shrink-0"
+                >
+                  {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
               </div>
-              <button
-                onClick={handleCopyLink}
-                className="h-8 px-3 flex items-center gap-1.5 bg-[#222222] text-white rounded-[8px] text-[12px] font-medium hover:bg-[#ff385c] transition-colors shrink-0"
-              >
-                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                {copied ? 'Copied' : 'Copy'}
-              </button>
+              {/* Team status */}
+              <div className="bg-white border border-[#ebebeb] rounded-[8px] px-3 py-2">
+                <p className="text-[12px] text-[#6a6a6a] font-medium">
+                  {teamCount === 0 ? '0 team members joined' : `${teamCount} team member${teamCount === 1 ? '' : 's'} joined`}
+                </p>
+                {teamCount > 0 && (
+                  <div className="mt-1.5 space-y-1">
+                    {teamMembers.map(m => (
+                      <div key={m.id} className="flex items-center gap-1.5">
+                        <Check className="h-3 w-3 text-[#008a05]" />
+                        <span className="text-[12px] text-[#222222]">{m.full_name}</span>
+                      </div>
+                    ))}
+                    <p className="text-[11px] text-[#6a6a6a] mt-2">Your task templates are ready. When employees complete tasks, your Pulse metrics update in real time.</p>
+                  </div>
+                )}
+                {teamCount === 0 && (
+                  <p className="text-[11px] text-[#6a6a6a] mt-1">Once your first team member joins, we&apos;ll help you assign tasks so your Pulse starts filling with real data.</p>
+                )}
+              </div>
             </div>
           )}
 
           {step === 'create_playbook' && (
             <div className="mt-3 space-y-2">
-              <textarea
-                placeholder="Describe a procedure..."
-                className="w-full bg-white border border-[#ebebeb] rounded-[8px] px-3 py-2 text-[13px] text-[#222222] placeholder-[#6a6a6a] focus:outline-none focus:border-[#222222] resize-none font-medium"
-                rows={2}
-              />
-              <button
-                onClick={handleSkip}
-                className="bg-[#222222] text-white rounded-[8px] px-4 py-2 text-[13px] font-medium hover:bg-[#ff385c] transition-colors"
-              >
-                Generate
-              </button>
+              {playbookSuccess ? (
+                <div className="bg-white border border-[#ebebeb] rounded-[8px] px-3 py-3 flex items-center gap-2">
+                  <Check className="h-4 w-4 text-[#008a05]" />
+                  <p className="text-[13px] text-[#222222] font-medium">Playbook created! Your team will see it when they start tasks.</p>
+                </div>
+              ) : (
+                <>
+                  <textarea
+                    placeholder="Describe a procedure..."
+                    value={playbookTopic}
+                    onChange={e => setPlaybookTopic(e.target.value)}
+                    className="w-full bg-white border border-[#ebebeb] rounded-[8px] px-3 py-2 text-[13px] text-[#222222] placeholder-[#6a6a6a] focus:outline-none focus:border-[#222222] resize-none font-medium"
+                    rows={2}
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!playbookTopic.trim()) return
+                      setIsGenerating(true)
+                      try {
+                        const res = await fetch('/api/ai/content', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ topic: playbookTopic }),
+                        })
+                        if (res.ok) {
+                          const next = advanceLMProgress()
+                          setStep(next)
+                          setPlaybookSuccess(true)
+                          onAdvance?.()
+                        }
+                      } catch { /* ignore */ } finally {
+                        setIsGenerating(false)
+                      }
+                    }}
+                    disabled={isGenerating || !playbookTopic.trim()}
+                    className="bg-[#222222] text-white rounded-[8px] px-4 py-2 text-[13px] font-medium hover:bg-[#ff385c] transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+                  >
+                    {isGenerating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    {isGenerating ? 'Generating...' : 'Generate'}
+                  </button>
+                </>
+              )}
             </div>
           )}
 

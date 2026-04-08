@@ -6,7 +6,9 @@ const isPublicRoute = createRouteMatcher([
   '/pricing(.*)',
   '/sign-in(.*)',
   '/sign-up(.*)',
+  '/join(.*)',
   '/api/ai/(.*)',
+  '/api/invite(.*)',
 ])
 
 export default clerkMiddleware(async (auth, request) => {

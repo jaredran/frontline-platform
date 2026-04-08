@@ -472,16 +472,18 @@ export async function consumeCredits(action: AIActionType): Promise<boolean> {
   return true
 }
 
-// ─── Results Fees (computed from interventions — kept local) ────────────
+// ─── Results Fees ────────────────────────────────────────────────
 
-const RESULTS_FEES: ResultsFee[] = [
+const SEED_RESULTS_FEES: ResultsFee[] = [
   { intervention_id: 'int-1', metric_name: 'quality_score',        improvement_points: 4, rate_per_point: 30, fee: 120, estimated_value: 1200 },
   { intervention_id: 'int-1', metric_name: 'compliance_rate',      improvement_points: 4, rate_per_point: 40, fee: 160, estimated_value: 1600 },
   { intervention_id: 'int-2', metric_name: 'task_completion_rate', improvement_points: 4, rate_per_point: 25, fee: 100, estimated_value: 1000 },
 ]
 
 export async function getResultsFees(): Promise<ResultsFee[]> {
-  return RESULTS_FEES
+  const supabase = createClient()
+  const { data } = await supabase.from('results_fees').select('*')
+  return [...SEED_RESULTS_FEES, ...(data ?? [])]
 }
 
 export async function getResultsFeesForLocation(locationId: string): Promise<ResultsFee[]> {
@@ -489,11 +491,13 @@ export async function getResultsFeesForLocation(locationId: string): Promise<Res
   const locInterventionIds = interventions
     .filter((i) => i.location_id === locationId)
     .map((i) => i.id)
-  return RESULTS_FEES.filter((r) => locInterventionIds.includes(r.intervention_id))
+  const allFees = await getResultsFees()
+  return allFees.filter((r) => locInterventionIds.includes(r.intervention_id))
 }
 
 export async function getTotalResultsFee(): Promise<number> {
-  return RESULTS_FEES.reduce((sum, r) => sum + r.fee, 0)
+  const allFees = await getResultsFees()
+  return allFees.reduce((sum, r) => sum + r.fee, 0)
 }
 
 // ─── LM Progress ────────────────────────────────────────────────
@@ -577,6 +581,67 @@ export async function addPulseMetric(pm: PulseMetric): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { diagnosis: _d, location: _l, ...row } = pm
   await supabase.from('pulse_metrics').insert(row)
+}
+
+export async function addMetricHistory(
+  points: { location_id: string; metric_name: string; date: string; value: number }[]
+): Promise<void> {
+  if (points.length === 0) return
+  const supabase = createClient()
+  await supabase.from('metric_history').insert(points)
+}
+
+export async function addIntervention(intervention: Intervention): Promise<void> {
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { actual_outcome: _ao, location: _l, ...row } = intervention
+  await supabase.from('interventions').insert(row)
+}
+
+export async function addResultsFee(fee: ResultsFee): Promise<void> {
+  const supabase = createClient()
+  await supabase.from('results_fees').insert(fee)
+}
+
+// ─── Invite Links ────────────────────────────────────────────────
+
+export async function createInviteLink(locationId: string, createdBy?: string): Promise<{ code: string }> {
+  const supabase = createClient()
+  // Check for existing unexpired link
+  const { data: existing } = await supabase
+    .from('invite_links')
+    .select('code')
+    .eq('location_id', locationId)
+    .gt('expires_at', new Date().toISOString())
+    .limit(1)
+    .single()
+  if (existing?.code) return { code: existing.code }
+
+  // Create new link
+  const code = Math.random().toString(36).substring(2, 10)
+  await supabase.from('invite_links').insert({
+    id: `inv-${Date.now()}`,
+    location_id: locationId,
+    code,
+    created_by: createdBy ?? null,
+    created_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+  })
+  return { code }
+}
+
+export async function getInviteLink(code: string): Promise<{ locationId: string; locationName: string } | null> {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from('invite_links')
+    .select('location_id')
+    .eq('code', code)
+    .gt('expires_at', new Date().toISOString())
+    .single()
+  if (!data) return null
+
+  const loc = await getLocation(data.location_id)
+  return { locationId: data.location_id, locationName: loc?.name ?? 'Unknown Location' }
 }
 
 // ─── Aggregate helpers ────────────────────────────────────────────────

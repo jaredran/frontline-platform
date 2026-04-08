@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth-context'
-import { getPulseMetrics, getLocation, getProfilesByLocation, getShiftsByLocation, getPlaybookCompletions, getResultsFeesForLocation, getInterventionTimeline, getTotalResultsFee, addLocation, addPulseMetric, addTask, setLMProgress, getLMProgress } from '@/lib/data/store'
+import { getPulseMetrics, getLocation, getProfilesByLocation, getShiftsByLocation, getPlaybookCompletions, getResultsFeesForLocation, getInterventionTimeline, getTotalResultsFee, addLocation, addPulseMetric, addTask, setLMProgress, getLMProgress, addMetricHistory, addIntervention, addResultsFee } from '@/lib/data/store'
 import { RoleShell } from '@/components/shared/role-shell'
 import { AIBriefing } from '@/components/shared/ai-briefing'
 import { PulseGrid } from '@/components/shared/pulse-card'
@@ -12,7 +12,7 @@ import { AttributionChart } from '@/components/shared/attribution-chart'
 
 import { Loader2, TrendingUp, X, Check, Info } from 'lucide-react'
 import { PULSE_METRICS } from '@/lib/types'
-import type { PulseMetric, RecommendedAction, GeneratedLocationSetup, Profile, Location, ResultsFee } from '@/lib/types'
+import type { PulseMetric, RecommendedAction, GeneratedLocationSetup, Profile, Location, ResultsFee, Intervention } from '@/lib/types'
 
 const cardShadow = 'rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px'
 
@@ -47,9 +47,50 @@ export default function PulseDashboard() {
   const [approvedActions, setApprovedActions] = useState<Set<number>>(new Set())
   const [dismissedActions, setDismissedActions] = useState<Set<number>>(new Set())
 
+  // Step 0: Handle pending invite (team member joining via invite link)
+  useEffect(() => {
+    if (setupHydrated) return
+    const inviteRaw = localStorage.getItem('frontline_pending_invite')
+    if (!inviteRaw) return // Fall through to Step 1
+
+    try {
+      const { locationId: inviteLocationId, locationName } = JSON.parse(inviteRaw)
+      const now = Date.now()
+      const userId = `user-fe-${now}`
+      const today = new Date().toISOString().split('T')[0]
+
+      const profile: Profile = {
+        id: userId,
+        org_id: 'org-1',
+        role: 'fe',
+        full_name: 'Team Member',
+        email: 'team@frontline.app',
+        location_id: inviteLocationId,
+        avatar_url: null,
+        skills: [],
+        certifications: [],
+        hire_date: today,
+        created_at: new Date().toISOString(),
+      }
+
+      import('@/lib/data/store').then(({ addProfile }) => {
+        addProfile(profile).then(() => {
+          loginWithNewProfile(profile)
+          localStorage.removeItem('frontline_pending_invite')
+          // Redirect to FE page since they're a frontline employee
+          window.location.href = '/fe'
+        })
+      })
+    } catch {
+      localStorage.removeItem('frontline_pending_invite')
+    }
+  }, [setupHydrated, loginWithNewProfile])
+
   // Step 1: Handle pending setup from onboarding hero
   useEffect(() => {
     if (setupHydrated) return
+    const inviteRaw = localStorage.getItem('frontline_pending_invite')
+    if (inviteRaw) return // Step 0 is handling this
     const pendingRaw = localStorage.getItem('frontline_pending_setup')
     if (!pendingRaw) {
       setSetupHydrated(true)
@@ -128,14 +169,100 @@ export default function PulseDashboard() {
         await setLMProgress(locationId, 'invite_team')
         loginWithNewProfile(profile)
 
-        const briefingFromDiagnosis = setup.diagnosis.root_causes
-          .map((rc, i) => `${i + 1}. ${rc.cause}: ${rc.reasoning}`)
-          .join('\n\n')
-        const actionsText = setup.diagnosis.recommended_actions
-          .map(a => `• ${a.action} (${a.expected_impact}, ${a.timeline})`)
-          .join('\n')
-        const initialBriefing = `Here's your initial diagnosis for ${setup.location_name}:\n\n${briefingFromDiagnosis}\n\nRecommended first actions:\n${actionsText}`
-        localStorage.setItem('frontline_initial_briefing', initialBriefing)
+        // Store structured briefing JSON so AIBriefing can render action cards
+        const initialBriefingJSON = JSON.stringify({
+          briefing: `Here's your initial diagnosis for ${setup.location_name}. ${setup.diagnosis.root_causes.map((rc, i) => `${i + 1}. ${rc.cause}: ${rc.reasoning}`).join(' ')}`,
+          causes: setup.diagnosis.root_causes.map(rc => ({
+            cause: rc.cause,
+            evidence: rc.reasoning,
+            severity: rc.confidence === 'high' ? 'high' : 'medium',
+          })),
+          recommended_actions: setup.diagnosis.recommended_actions.map(a => ({
+            action: a.action,
+            impact: 'high',
+            effort: 'medium',
+            owner: 'Location Manager',
+            timeline: a.timeline,
+          })),
+        })
+        localStorage.setItem('frontline_initial_briefing', initialBriefingJSON)
+
+        // Generate synthetic metric history (9 weeks) for demo charts
+        const historyPoints: { location_id: string; metric_name: string; date: string; value: number }[] = []
+        const interventionDate = new Date()
+        interventionDate.setDate(interventionDate.getDate() - 28) // 4 weeks ago
+        const metricsBefore: Record<string, number> = {}
+        const metricsAfter: Record<string, number> = {}
+
+        for (const pm of setup.diagnosis.estimated_pulse) {
+          const currentVal = pm.estimated_value
+          const targetVal = pm.target
+          const isInverse = pm.metric_name === 'labor_cost_percent'
+          // Start value: further from target than current
+          const gap = Math.abs(targetVal - currentVal)
+          const startVal = isInverse
+            ? currentVal + gap * 0.6  // labor cost was worse (higher)
+            : currentVal - gap * 0.6  // other metrics were worse (lower)
+
+          for (let w = 0; w < 9; w++) {
+            const date = new Date()
+            date.setDate(date.getDate() - (8 - w) * 7)
+            const progress = w / 8
+            // Smooth improvement curve
+            const val = startVal + (currentVal - startVal) * (progress * progress)
+            historyPoints.push({
+              location_id: locationId,
+              metric_name: pm.metric_name,
+              date: date.toISOString().split('T')[0],
+              value: Math.round(val * 10) / 10,
+            })
+          }
+
+          // Before = avg of first 4 points, After = avg of last 4 points
+          const beforeVals = Array.from({ length: 4 }, (_, w) => {
+            const progress = w / 8
+            return startVal + (currentVal - startVal) * (progress * progress)
+          })
+          const afterVals = Array.from({ length: 4 }, (_, w) => {
+            const progress = (w + 5) / 8
+            return startVal + (currentVal - startVal) * (progress * progress)
+          })
+          metricsBefore[pm.metric_name] = Math.round(beforeVals.reduce((s, v) => s + v, 0) / beforeVals.length * 10) / 10
+          metricsAfter[pm.metric_name] = Math.round(afterVals.reduce((s, v) => s + v, 0) / afterVals.length * 10) / 10
+        }
+
+        await addMetricHistory(historyPoints)
+
+        // Create a sample intervention
+        const interventionId = `int-new-${now}`
+        const intervention: Intervention = {
+          id: interventionId,
+          org_id: 'org-1',
+          location_id: locationId,
+          type: 'training',
+          description: 'AI-recommended training and process improvements',
+          target_population: { location_ids: [locationId] },
+          expected_outcome: 'Improve key metrics by addressing root causes identified in diagnosis',
+          started_at: interventionDate.toISOString(),
+          created_by: userId,
+          created_at: interventionDate.toISOString(),
+          metrics_before: metricsBefore,
+          metrics_after: metricsAfter,
+        }
+        await addIntervention(intervention)
+
+        // Create a sample results fee
+        const topMetric = setup.diagnosis.estimated_pulse[0]
+        const improvement = Math.abs((metricsAfter[topMetric.metric_name] || 0) - (metricsBefore[topMetric.metric_name] || 0))
+        await addResultsFee({
+          intervention_id: interventionId,
+          metric_name: topMetric.metric_name,
+          improvement_points: Math.round(improvement * 10) / 10,
+          rate_per_point: 300,
+          fee: Math.round(improvement * 300 * 0.1),
+          estimated_value: Math.round(improvement * 300),
+        })
+
         localStorage.removeItem('frontline_pending_setup')
         setSetupHydrated(true)
       }

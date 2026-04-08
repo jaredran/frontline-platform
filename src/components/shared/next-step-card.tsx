@@ -53,6 +53,7 @@ export function NextStepCard({ onAdvance, locationId, isDemoMode }: NextStepCard
   const [isGenerating, setIsGenerating] = useState(false)
   const [playbookSuccess, setPlaybookSuccess] = useState(false)
   const [teamMembers, setTeamMembers] = useState<Profile[]>([])
+  const [inviteCode, setInviteCode] = useState<string | null>(null)
 
   // Load step and team members
   useEffect(() => {
@@ -67,6 +68,21 @@ export function NextStepCard({ onAdvance, locationId, isDemoMode }: NextStepCard
     })
   }, [locationId])
 
+  // Generate invite link when on invite_team step
+  useEffect(() => {
+    if (!locationId || step !== 'invite_team') return
+    fetch('/api/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locationId }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.code) setInviteCode(data.code)
+      })
+      .catch(() => { /* ignore — will show fallback */ })
+  }, [locationId, step])
+
   if (!stepLoaded || step === 'complete') return null
 
   const config = STEP_CONFIG[step]
@@ -80,7 +96,9 @@ export function NextStepCard({ onAdvance, locationId, isDemoMode }: NextStepCard
   }
 
   function handleCopyLink() {
-    navigator.clipboard.writeText('https://frontline.app/join/abc123')
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const url = inviteCode ? `${origin}/join/${inviteCode}` : `${origin}/join/...`
+    navigator.clipboard.writeText(url)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -110,7 +128,7 @@ export function NextStepCard({ onAdvance, locationId, isDemoMode }: NextStepCard
             <div className="mt-3 space-y-3">
               <div className="flex items-center gap-2">
                 <div className="flex-1 bg-white border border-[#ebebeb] rounded-[8px] px-3 py-2 text-[12px] text-[#6a6a6a] font-mono truncate">
-                  https://frontline.app/join/abc123
+                  {inviteCode ? `${typeof window !== 'undefined' ? window.location.origin : ''}/join/${inviteCode}` : 'Generating invite link...'}
                 </div>
                 <button
                   onClick={handleCopyLink}

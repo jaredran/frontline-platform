@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth-context'
-import { getPulseMetrics, getLocation, getProfilesByLocation, getShiftsByLocation, getPlaybookCompletions, getResultsFeesForLocation, getInterventionTimeline, getTotalResultsFee } from '@/lib/data/store'
+import { getPulseMetrics, getLocation, getProfilesByLocation, getShiftsByLocation, getPlaybookCompletions, getResultsFeesForLocation, getInterventionTimeline, getTotalResultsFee, addLocation, addPulseMetric, addTask, setLMProgress } from '@/lib/data/store'
+import { RoleShell } from '@/components/shared/role-shell'
 import { AIBriefing } from '@/components/shared/ai-briefing'
 import { PulseGrid } from '@/components/shared/pulse-card'
 import { InlineAI } from '@/components/shared/inline-ai'
@@ -11,7 +12,7 @@ import { AttributionChart } from '@/components/shared/attribution-chart'
 
 import { Loader2, TrendingUp, X, Check, Info } from 'lucide-react'
 import { PULSE_METRICS } from '@/lib/types'
-import type { PulseMetric, RecommendedAction } from '@/lib/types'
+import type { PulseMetric, RecommendedAction, GeneratedLocationSetup, Profile, Location } from '@/lib/types'
 
 const cardShadow = 'rgba(0,0,0,0.02) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 2px 6px, rgba(0,0,0,0.1) 0px 4px 8px'
 
@@ -22,14 +23,118 @@ const IMPACT_BG: Record<string, string> = {
 }
 
 export default function PulseDashboard() {
-  const { user } = useAuth()
+  const { user, loginWithNewProfile } = useAuth()
   const [, forceUpdate] = useState(0)
+  const [setupHydrated, setSetupHydrated] = useState(false)
+
+  useEffect(() => {
+    if (setupHydrated) return
+    const pendingRaw = localStorage.getItem('frontline_pending_setup')
+    if (!pendingRaw) {
+      setSetupHydrated(true)
+      return
+    }
+
+    try {
+      const { setup } = JSON.parse(pendingRaw) as { setup: GeneratedLocationSetup }
+      const now = Date.now()
+      const locationId = `loc-new-${now}`
+      const userId = `user-new-${now}`
+      const today = new Date().toISOString().split('T')[0]
+
+      // Create profile
+      const profile: Profile = {
+        id: userId,
+        org_id: 'org-1',
+        role: 'lm',
+        full_name: 'You',
+        email: 'you@frontline.app',
+        location_id: locationId,
+        avatar_url: null,
+        skills: [],
+        certifications: [],
+        hire_date: today,
+        created_at: new Date().toISOString(),
+      }
+
+      // Create location
+      const location: Location = {
+        id: locationId,
+        org_id: 'org-1',
+        name: setup.location_name,
+        type: setup.industry,
+        address: '',
+        manager_id: userId,
+        timezone: 'America/Chicago',
+        created_at: new Date().toISOString(),
+      }
+
+      addLocation(location)
+
+      // Add pulse metrics
+      for (const pm of setup.diagnosis.estimated_pulse) {
+        addPulseMetric({
+          id: `pm-new-${pm.metric_name}-${now}`,
+          location_id: locationId,
+          date: today,
+          metric_name: pm.metric_name,
+          actual: pm.estimated_value,
+          target: pm.target,
+          trend: pm.estimated_value < pm.target ? 'down' : 'up',
+          period: 'daily',
+          created_at: new Date().toISOString(),
+        })
+      }
+
+      // Add tasks
+      setup.task_templates.forEach((tmpl, i) => {
+        addTask({
+          id: `task-new-${i}-${now}`,
+          shift_id: null,
+          location_id: locationId,
+          title: tmpl.title,
+          description: tmpl.description,
+          standard: null,
+          category: tmpl.category,
+          priority: tmpl.priority,
+          assigned_to: null,
+          status: 'pending',
+          quality_score: null,
+          completed_at: null,
+          due_by: null,
+          created_at: new Date().toISOString(),
+        })
+      })
+
+      setLMProgress('invite_team')
+      loginWithNewProfile(profile)
+
+      // Clear the pending setup
+      localStorage.removeItem('frontline_pending_setup')
+    } catch (e) {
+      console.error('Failed to hydrate setup:', e)
+      localStorage.removeItem('frontline_pending_setup')
+    }
+
+    setSetupHydrated(true)
+  }, [setupHydrated, loginWithNewProfile])
   const [selectedMetric, setSelectedMetric] = useState<PulseMetric | null>(null)
   const [diagnosisText, setDiagnosisText] = useState('')
   const [diagnosisActions, setDiagnosisActions] = useState<RecommendedAction[]>([])
   const [isDiagnosing, setIsDiagnosing] = useState(false)
   const [approvedActions, setApprovedActions] = useState<Set<number>>(new Set())
   const [dismissedActions, setDismissedActions] = useState<Set<number>>(new Set())
+
+  if (!setupHydrated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="text-center">
+          <Loader2 className="h-6 w-6 animate-spin text-[#ff385c] mx-auto" />
+          <p className="text-[13px] text-[#6a6a6a] mt-2">Setting up your location...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!user) return null
 
@@ -155,6 +260,7 @@ export default function PulseDashboard() {
     : null
 
   return (
+    <RoleShell role="lm">
     <div className="bg-white min-h-full">
         <AIBriefing
           role="lm"
@@ -436,5 +542,6 @@ export default function PulseDashboard() {
           </p>
         </div>
       </div>
+    </RoleShell>
   )
 }

@@ -2,9 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '@/lib/auth-context'
-import { addLocation, addPulseMetric, addTask, setLMProgress } from '@/lib/data/store'
-import type { GeneratedLocationSetup, Profile, Location, PulseMetric, Task, TaskPriority } from '@/lib/types'
+import type { GeneratedLocationSetup, TaskPriority } from '@/lib/types'
 import { Loader2, Sparkles, Check, ChevronDown, ChevronUp } from 'lucide-react'
 
 type Stage = 'idle' | 'generating' | 'reviewing' | 'confirming' | 'done'
@@ -62,7 +60,6 @@ function getStatusColor(status: string): string {
 
 export default function HeroInput() {
   const router = useRouter()
-  const { loginWithNewProfile } = useAuth()
 
   const [stage, setStage] = useState<Stage>('idle')
   const [locationName, setLocationName] = useState('')
@@ -105,80 +102,17 @@ export default function HeroInput() {
     if (!setup) return
     setStage('confirming')
 
-    const now = Date.now()
-    const locationId = `loc-new-${now}`
-    const userId = `user-new-${now}`
-    const today = new Date().toISOString().split('T')[0]
-
-    const profile: Profile = {
-      id: userId,
-      org_id: 'org-1',
-      role: 'lm',
-      full_name: 'You',
-      email: 'you@frontline.app',
-      location_id: locationId,
-      avatar_url: null,
-      skills: [],
-      certifications: [],
-      hire_date: today,
-      created_at: new Date().toISOString(),
+    // Save setup to localStorage so it survives the auth redirect
+    const setupPayload = {
+      setup,
+      locationName: setup.location_name,
+      locationType: setup.industry,
+      timestamp: Date.now(),
     }
+    localStorage.setItem('frontline_pending_setup', JSON.stringify(setupPayload))
 
-    const location: Location = {
-      id: locationId,
-      org_id: 'org-1',
-      name: setup.location_name,
-      type: setup.industry,
-      address: '',
-      manager_id: userId,
-      timezone: 'America/Chicago',
-      created_at: new Date().toISOString(),
-    }
-
-    addLocation(location)
-
-    // Add pulse metrics
-    for (const pm of setup.diagnosis.estimated_pulse) {
-      const pulseMetric: PulseMetric = {
-        id: `pm-new-${pm.metric_name}-${now}`,
-        location_id: locationId,
-        date: today,
-        metric_name: pm.metric_name,
-        actual: pm.estimated_value,
-        target: pm.target,
-        trend: pm.estimated_value < pm.target ? 'down' : 'up',
-        period: 'daily',
-        created_at: new Date().toISOString(),
-      }
-      addPulseMetric(pulseMetric)
-    }
-
-    // Add tasks
-    for (let i = 0; i < setup.task_templates.length; i++) {
-      const tmpl = setup.task_templates[i]
-      const task: Task = {
-        id: `task-new-${i}-${now}`,
-        shift_id: null,
-        location_id: locationId,
-        title: tmpl.title,
-        description: tmpl.description,
-        standard: null,
-        category: tmpl.category,
-        priority: tmpl.priority,
-        assigned_to: null,
-        status: 'pending',
-        quality_score: null,
-        completed_at: null,
-        due_by: null,
-        created_at: new Date().toISOString(),
-      }
-      addTask(task)
-    }
-
-    setLMProgress('invite_team')
-    loginWithNewProfile(profile)
-    setStage('done')
-    router.push('/lm')
+    // Redirect to sign-up — after auth, user lands on /lm where setup is hydrated
+    router.push('/sign-up')
   }
 
   return (
